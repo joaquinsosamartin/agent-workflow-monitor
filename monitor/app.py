@@ -48,7 +48,7 @@ class UsageIn(BaseModel):
 class EventIn(BaseModel):
     type: Literal['node.status','run.status','usage','log']
     node_id: str|None=None
-    status: Literal['pending','running','completed','failed','blocked','cancelled']|None=None
+    status: Literal['pending','running','idle','completed','failed','blocked','cancelled']|None=None
     agent: str|None=None
     provider: str|None=None
     message: str=''
@@ -74,7 +74,36 @@ def authorize(x_monitor_key: str|None=Header(default=None)):
     if not x_monitor_key or not hmac.compare_digest(x_monitor_key,KEY):
         raise HTTPException(401,'Invalid monitor key')
 
-app=FastAPI(title='Agent Workflow Monitor',version='0.1.0')
+app=FastAPI(title='Agent Workflow Monitor',version='0.2.0')
+
+# Local transcript observation is read-only and requires no provider hooks.
+# Disable with AGENT_MONITOR_OBSERVE=0.
+from .observer import SessionObserver
+observer = SessionObserver(store, poll_seconds=float(os.getenv('AGENT_MONITOR_POLL_SECONDS', '2')),
+                           max_age_hours=float(os.getenv('AGENT_MONITOR_LOOKBACK_HOURS', '12')))
+
+@app.on_event('startup')
+async def observer_start():
+    if os.getenv('AGENT_MONITOR_OBSERVE', '1').lower() not in ('0','false','no'):
+        observer.start()
+
+@app.on_event('shutdown')
+async def observer_shutdown():
+    observer.stop()
+
+@app.get('/api/observer')
+def observer_status():
+    from .observer import path_roots
+    return {'enabled': observer.thread is not None and observer.thread.is_alive(),
+            'roots': {name: str(path) for name,path in path_roots().items()},
+            'poll_seconds': observer.poll_seconds,
+            'lookback_hours': observer.max_age_seconds/3600,
+            'errors': dict(list(observer.last_errors.items())[-10:])}
+
+@app.post('/api/observer/scan',dependencies=[Depends(authorize)])
+def observer_scan():
+    return {'files_scanned': observer.scan_once()}
+
 
 @app.get('/')
 def index(): return FileResponse(STATIC/'index.html')
