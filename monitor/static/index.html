@@ -87,8 +87,11 @@ let detailSelection={type:"none",id:null},selectionVersion=0,refreshRequestId=0;
 const expandedAgentCards=new Set();
 let processDetailSignature="";
 let dashboardRequest=null,dashboardData=null,dashboardFetchedAt=0;
+let dashboardRefreshSeconds=10;
+let dashboardPollInFlight=false;
+let dashboardRefreshTimer=null;
 async function getDashboard(force=false){
- if(!force&&dashboardData&&Date.now()-dashboardFetchedAt<8000)return dashboardData;
+ if(!force&&dashboardData&&Date.now()-dashboardFetchedAt<Math.max(2000,(dashboardRefreshSeconds-2)*1000))return dashboardData;
  if(dashboardRequest)return dashboardRequest;
  dashboardRequest=get("/api/dashboard").then(data=>{
    dashboardData=data;dashboardFetchedAt=Date.now();return data;
@@ -547,7 +550,25 @@ async function select(id){
  stream=new EventSource("/api/runs/"+encodeURIComponent(id)+"/events");
  stream.addEventListener("update",()=>{if(selectionVersion===version&&detailSelection.type==="session")scheduleRefresh()});
 }
-setInterval(async()=>{try{await Promise.all([listRunsNoSelect(),refreshProcessTree()])}catch(e){console.warn(e)}},10000);
+function scheduleDashboardPoll(){
+ if(dashboardRefreshTimer!==null)clearTimeout(dashboardRefreshTimer);
+ dashboardRefreshTimer=setTimeout(async()=>{
+  if(!document.hidden&&!dashboardPollInFlight){
+   dashboardPollInFlight=true;
+   try{await Promise.all([listRunsNoSelect(),refreshProcessTree()])}
+   catch(e){console.warn(e)}
+   finally{dashboardPollInFlight=false}
+  }
+  scheduleDashboardPoll();
+ },dashboardRefreshSeconds*1000);
+}
+document.addEventListener("visibilitychange",()=>{
+ if(!document.hidden){dashboardFetchedAt=0;listRunsNoSelect().then(()=>refreshProcessTree()).catch(console.warn)}
+});
 document.querySelector("#demo").onclick=async()=>{try{const r=await post("/api/demo",{});await select(r.id)}catch(e){alert(e.message)}};
-(async()=>{try{key=(await get("/api/bootstrap")).key;await Promise.all([listRuns(),refreshProcessTree()])}catch(e){document.querySelector("#view").textContent="Error al conectar con backend: "+e.message}})();
+(async()=>{try{const boot=await get("/api/bootstrap");
+ key=boot.key;
+ dashboardRefreshSeconds=Math.min(60,Math.max(2,Number(boot.dashboard_refresh_seconds)||10));
+ await Promise.all([listRuns(),refreshProcessTree()]);
+ scheduleDashboardPoll()}catch(e){document.querySelector("#view").textContent="Error al conectar con backend: "+e.message}})();
 </script></body></html>
