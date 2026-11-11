@@ -159,7 +159,16 @@ def update_phase(store, plan_id: str, phase_id: str, update: PhaseUpdate):
         status=update.status or phase["status"]
         provider=update.provider or phase["provider"]
         agent=update.agent_id if update.agent_id is not None else phase["agent_id"]
-        session=update.session_id if update.session_id is not None else phase["session_id"]
+        # An explicit JSON null clears the previous session on handoff.
+        # If ownership changes with no session specified, do not retain the
+        # previous agent's session identifier.
+        owner_changed = provider != phase["provider"] or agent != phase["agent_id"]
+        if "session_id" in update.model_fields_set:
+            session = update.session_id
+        elif owner_changed:
+            session = None
+        else:
+            session = phase["session_id"]
         started=phase["started_at"] or (timestamp if status=="running" else None)
         finished=timestamp if status in ("completed","failed","cancelled") else None
         store.conn.execute("""
