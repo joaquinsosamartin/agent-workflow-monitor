@@ -180,6 +180,17 @@ def get_processes():
         }
     }
 
+@app.get('/api/topology')
+def get_topology():
+    from .topology import build_process_tree
+    runs, processes = classified_runs()
+    return {
+        **build_process_tree(processes['processes'],
+                             processes['process_relationships'], runs),
+        'checked_at': processes['checked_at'],
+        'note': 'Hierarchy is based on OS process ancestry, not confirmed agent delegation.'
+    }
+
 @app.post('/api/runs',dependencies=[Depends(authorize)])
 def create_run(data:RunIn):
     try: return {'id':store.add_run(data.title,data.project,data.id)}
