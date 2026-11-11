@@ -80,3 +80,23 @@ export async function loadSharedWorkflow($, planId) {
   const key=encodeURIComponent(planId);
   return await request($,"/api/workflows/"+key);
 }
+
+export async function sendClaudeTask($, entry) {
+  const session_id=oneLine(await $.session.id(),128);
+  if(!session_id)throw new Error("Session ID unavailable");
+  const key=await apiKey($);
+  return request($,"/api/integrations/claude/task-events",{
+    method:"POST",
+    headers:{"content-type":"application/json","X-Monitor-Key":key},
+    body:JSON.stringify({
+      plan_id:oneLine(entry.planId,128),
+      session_id,
+      task_id:oneLine(entry.taskId,128),
+      action:entry.action,
+      subject:entry.subject?oneLine(entry.subject,195):null,
+      status:entry.status||null,
+      owner:entry.owner?oneLine(entry.owner,128):null,
+      event_id:oneLine(entry.eventId,128),
+    }),
+  });
+}
