@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agent Workflow Monitor</title>
+<style>
+:root{color-scheme:dark;font:14px/1.5 Inter,system-ui,Segoe UI,sans-serif;--bg:#0b1422;--panel:#17263b;--border:#2b405b;--text:#e9f2ff;--muted:#9bb2d0;--green:#59d8ad;--blue:#8ab8ff}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 75% 0%,#182f4d,var(--bg) 55%);color:var(--text)}
+.layout{max-width:1200px;margin:auto;display:grid;grid-template-columns:290px minmax(300px,1fr);min-height:100vh}
+aside{border-right:1px solid var(--border);padding:27px 18px}main{padding:32px 40px;max-width:850px;width:100%;margin:auto}
+.brand{font-size:17px;font-weight:750;margin-bottom:33px}.brand span{color:var(--blue)}
+small,.muted{color:var(--muted)}.eyebrow{color:#86a5d0;letter-spacing:2px;font-size:11px;font-weight:700}
+button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid var(--blue)}
+.run{width:100%;text-align:left;display:block;background:transparent;border:1px solid transparent;padding:13px;margin:8px 0;color:inherit;border-radius:12px}
+.run.selected{border-color:#4a6990;background:#1d2e47}.run small{display:block;margin-top:5px}
+.btn{border:1px solid #456996;border-radius:10px;background:#23426b;color:#eef5ff;padding:11px 15px;margin-top:15px}
+h1{font-size:27px;letter-spacing:-.7px;margin:15px 0 5px}.header{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.badge{border:1px solid #426b93;color:#9cc6ff;border-radius:30px;padding:5px 11px;font-size:11px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:27px 0 35px}
+.card{background:#192b42;border:1px solid #304a68;border-radius:15px;padding:16px}.card b{font-size:21px;font-variant-numeric:tabular-nums}.card small{display:block;font-size:11px;margin-top:6px}
+.timeline{position:relative;margin-top:20px}.timeline:before{content:"";position:absolute;left:17px;top:19px;bottom:38px;background:#36506b;width:2px}
+.step{display:grid;position:relative;grid-template-columns:35px 1fr;gap:16px;margin-bottom:24px}
+.circle{width:35px;height:35px;display:grid;place-items:center;border:1px solid #526989;border-radius:50%;background:#1c2d43;position:relative;z-index:1}
+.completed .circle{color:var(--green);background:#153b34;border-color:#387968}.running .circle{color:var(--blue);background:#254468}.failed .circle{color:#ff9292}
+.heading{background:none;border:0;color:inherit;text-align:left;padding:4px 0;display:flex;justify-content:space-between;gap:12px;width:100%;font-size:15px;font-weight:650}
+.meta{display:flex;gap:12px;flex-wrap:wrap;margin-top:6px;color:var(--muted);font-size:12px}.good{color:var(--green)}.active{color:var(--blue)}
+.children{background:var(--panel);border:1px solid var(--border);border-radius:13px;margin-top:12px;padding:5px 14px}
+.child{display:flex;align-items:flex-start;justify-content:space-between;gap:9px;border-bottom:1px solid #30425a;padding:12px 0;font-size:12px}.child:last-child{border-bottom:0}
+.child span{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.footer{border-top:1px solid var(--border);padding-top:15px;margin-top:20px;color:var(--muted);font-size:12px}
+.empty{padding:34px;border:1px dashed var(--border);border-radius:15px;color:var(--muted)}
+@media(max-width:750px){.layout{display:block}aside{border-right:0;border-bottom:1px solid var(--border);padding:18px}.brand{margin-bottom:12px}main{padding:20px}.card{padding:11px}.card b{font-size:17px}.cards{gap:7px}}
+</style></head>
+<body><div class="layout"><aside><div class="brand">◇ Agent Workflow <span>Monitor</span></div>
+<div class="eyebrow">EXECUTIONS</div><div id="runs"></div>
+<button class="btn" id="demo">＋ Crear ejecución de demostración</button><p class="muted">SQLite local · SSE · Sin cloud</p>
+</aside><main id="view"><div class="empty">Selecciona una ejecución o crea una demostración.</div></main></div>
+<script>
+let key="",selected="",stream=null,snapshot=null;
+const opened=new Set(),closed=new Set();
+const el=(tag,cls,text)=>{const x=document.createElement(tag);if(cls)x.className=cls;if(text!==undefined)x.textContent=text;return x};
+const money=x=>x==null?"—":"$"+Number(x).toFixed(Number(x)<1?4:2);
+const compact=x=>x>=1000000?(x/1000000).toFixed(2)+"M":x>=1000?(x/1000).toFixed(1)+"K":String(x);
+const label=s=>({pending:"Pendiente",running:"En ejecución",completed:"Completado",failed:"Error",blocked:"Bloqueado",cancelled:"Cancelado"}[s]||s);
+const post=async(path,data)=>{const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json","X-Monitor-Key":key},body:JSON.stringify(data)});if(!r.ok)throw Error(await r.text());return r.json()};
+const get=async(path)=>{const r=await fetch(path);if(!r.ok)throw Error(await r.text());return r.json()};
+const usageSum=(rows)=>{let t=0,c=0,unknown=false;for(const u of rows){t+=u.input_tokens+u.output_tokens;if(u.cost_usd!=null)c+=Number(u.cost_usd);else unknown=true}return {tokens:t,cost:rows.every(u=>u.cost_usd==null)?null:c,unknown}};
+function cumulative(node,nodes,usage){const ids=[node.id];for(let i=0;i<ids.length;i++)ids.push(...nodes.filter(n=>n.parent_id===ids[i]).map(n=>n.id));return usageSum(usage.filter(u=>ids.includes(u.node_id)))}
+function txt(parent,tag,cls,value){const x=el(tag,cls,value);parent.append(x);return x}
+function stepView(node,index,nodes,usage){
+ const wrap=el("section","step "+node.status),circle=el("div","circle",node.status==="completed"?"✓":node.status==="running"?"◌":String(index+1));wrap.append(circle);
+ const content=el("div"),heading=el("button","heading"),headingName=el("span","",String(index+1)+". "+node.title),chevron=el("span","muted");
+ heading.append(headingName,chevron);content.append(heading);
+ const children=nodes.filter(n=>n.parent_id===node.id),open=opened.has(node.id)||(!closed.has(node.id)&&node.status==="running");chevron.textContent=open?"⌃":"⌄";
+ const meta=el("div","meta"),tot=cumulative(node,nodes,usage);
+ txt(meta,"span",node.provider==="claude"?"active":"good",(node.provider==="claude"?"✧ ":"⌘ ")+(node.agent||"Sin asignar"));
+ txt(meta,"span","",label(node.status));txt(meta,"span","",compact(tot.tokens)+" tokens · "+money(tot.cost)+(tot.unknown?"*":""));content.append(meta);
+ if(open&&children.length){const sub=el("div","children");for(const child of children){const row=el("div","child"),left=el("div"),u=cumulative(child,nodes,usage);
+ txt(left,"span",child.status==="completed"?"good":child.status==="running"?"active":"muted",(child.status==="completed"?"✓ ":child.status==="running"?"◌ ":"○ ")+child.title);
+ if(child.agent&&child.agent!==node.agent)txt(left,"div","muted",child.agent);
+ row.append(left,el("span","",compact(u.tokens)+" · "+money(u.cost)));sub.append(row)}content.append(sub)}
+ heading.onclick=()=>{if(open){opened.delete(node.id);closed.add(node.id)}else{closed.delete(node.id);opened.add(node.id)}render(snapshot)};
+ wrap.append(content);return wrap
+}
+function render(data){snapshot=data;const view=document.querySelector("#view");view.replaceChildren();const run=data.run,roots=data.nodes.filter(n=>!n.parent_id),tot=usageSum(data.usage);
+ const header=el("div","header");txt(header,"span","eyebrow","AGENT EXECUTION · "+run.id.substring(0,12));txt(header,"span","badge",label(run.status));view.append(header);
+ txt(view,"h1","",run.title);txt(view,"p","muted",(run.project||"Local")+" · Workflow de agentes");
+ const cards=el("div","cards");for(const item of [[money(tot.cost),"Coste USD"+(tot.unknown?" · parcial":"")],[compact(tot.tokens),"Tokens entrada + salida"],[roots.filter(n=>n.status==="completed").length+"/"+roots.length,"Fases completadas"]]){const c=el("div","card");txt(c,"b","",item[0]);txt(c,"small","",item[1]);cards.append(c)}view.append(cards);
+ txt(view,"div","eyebrow","EXECUTION TIMELINE");const timeline=el("div","timeline");roots.forEach((n,i)=>timeline.append(stepView(n,i,data.nodes,data.usage)));view.append(timeline);
+ txt(view,"div","footer","◉ SQLite local · Actualización SSE · Costes reportados/estimados según proveedor");
+}
+async function refresh(){if(!selected)return;try{render(await get("/api/runs/"+encodeURIComponent(selected)))}catch(e){console.error(e)}}
+async function listRuns(){const box=document.querySelector("#runs"),runs=await get("/api/runs");box.replaceChildren();for(const r of runs){const btn=el("button","run"+(r.id===selected?" selected":""),r.title);txt(btn,"small","",r.project+" · "+label(r.status));btn.onclick=()=>select(r.id);box.append(btn)}if(!selected&&runs.length)await select(runs[0].id)}
+async function select(id){selected=id;if(stream)stream.close();opened.clear();closed.clear();await refresh();await listRunsNoSelect();stream=new EventSource("/api/runs/"+encodeURIComponent(id)+"/events");stream.addEventListener("update",async()=>{await refresh();await listRunsNoSelect()})}
+async function listRunsNoSelect(){const box=document.querySelector("#runs"),runs=await get("/api/runs");box.replaceChildren();for(const r of runs){const b=el("button","run"+(r.id===selected?" selected":""),r.title);txt(b,"small","",r.project+" · "+label(r.status));b.onclick=()=>select(r.id);box.append(b)}}
+document.querySelector("#demo").onclick=async()=>{try{const r=await post("/api/demo",{});await select(r.id)}catch(e){alert(e.message)}};
+(async()=>{try{key=(await get("/api/bootstrap")).key;await listRuns()}catch(e){document.querySelector("#view").textContent="Error al conectar con backend: "+e.message}})();
+</script></body></html>
