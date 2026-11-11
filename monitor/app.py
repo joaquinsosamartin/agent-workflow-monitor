@@ -6,10 +6,12 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 from typing import Literal
 from .db import Store
+from .process_watch import ProcessRegistry
 
 STATIC = Path(__file__).resolve().parent/'static'
 DATA_DIR=Path(os.getenv('AGENT_MONITOR_DATA', str(Path.home()/'.agent-monitor')))
 store = Store(DATA_DIR/'monitor.db')
+process_registry = ProcessRegistry()
 listeners: dict[str, set[asyncio.Queue]] = {}
 
 class RunIn(BaseModel):
@@ -111,8 +113,34 @@ def index(): return FileResponse(STATIC/'index.html')
 @app.get('/api/bootstrap')
 def bootstrap(): return {'key':KEY,'version':'0.1.0'}
 
+def classified_runs():
+    runs = store.run_list()
+    with store.lock:
+        observer_files = [dict(r) for r in store.conn.execute(
+            "SELECT path,provider,run_id FROM observer_files"
+        )]
+    process_state = process_registry.classify(runs, observer_files)
+    return runs, process_state
+
 @app.get('/api/runs')
-def get_runs(): return store.run_list()
+def get_runs():
+    runs, _ = classified_runs()
+    return runs
+
+@app.get('/api/processes')
+def get_processes():
+    runs, processes = classified_runs()
+    return {
+        "verified_sessions": processes["verified_sessions"],
+        "detected_processes": len(processes["processes"]),
+        "unmatched_processes": processes["unmatched_processes"],
+        "checked_at": processes["checked_at"],
+        "errors": processes["errors"],
+        "classification": {
+            status: sum(r["presence"] == status for r in runs)
+            for status in ("active", "waiting", "recent_unverified", "inactive")
+        }
+    }
 
 @app.post('/api/runs',dependencies=[Depends(authorize)])
 def create_run(data:RunIn):
