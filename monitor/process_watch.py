@@ -176,12 +176,30 @@ class ProcessRegistry:
             name: sum(p["provider"] == name for p in snap["processes"])
             for name in ("codex", "claude")
         }
-        # This is a process topology hint, not verified task orchestration.
+        # Process ancestry can show that Codex launched Claude through an
+        # intermediary shell. It is NOT proof of task/session delegation.
         by_pid = {p["pid"]: p for p in snap["processes"]}
-        snap["process_relationships"] = [
-            {"parent_pid": p["ppid"], "child_pid": p["pid"],
-             "parent_provider": by_pid[p["ppid"]]["provider"],
-             "child_provider": p["provider"], "relation": "process_parent_only"}
-            for p in snap["processes"] if p.get("ppid") in by_pid
-        ]
+        relations = []
+        for child in snap["processes"]:
+            parent_pid = child.get("ppid")
+            visited = {child["pid"]}
+            for depth in range(1, 9):
+                if not parent_pid or parent_pid in visited:
+                    break
+                visited.add(parent_pid)
+                parent = by_pid.get(parent_pid)
+                if parent:
+                    relations.append({
+                        "parent_pid":parent_pid,"child_pid":child["pid"],
+                        "parent_provider":parent["provider"],
+                        "child_provider":child["provider"],
+                        "relation":"process_parent" if depth == 1 else "process_ancestor",
+                        "depth":depth
+                    })
+                    break
+                try:
+                    parent_pid = psutil.Process(parent_pid).ppid()
+                except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+                    break
+        snap["process_relationships"] = relations
         return snap
