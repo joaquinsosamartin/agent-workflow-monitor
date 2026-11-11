@@ -240,3 +240,30 @@ git pull
 Restart the old server before using the new version, and refresh the browser with Ctrl+F5. Then inspect `http://127.0.0.1:8765/api/observer` and `http://127.0.0.1:8765/api/processes`.
 
 **Remaining limitation:** starting Codex normally does not expose its session UUID in the process command line. The process may be visible even if its JSONL is not current or its session cannot be linked; this cannot be safely resolved by matching similar timestamps alone. Showing “Codex orchestrates these two Claude agents” requires correlated launch events/trace IDs or explicit instrumentation.
+
+## Árbol de orquestadores y agentes (11/11/2026)
+
+El lateral incluye ahora **PROCESS TREE**, por encima del historial de sesiones:
+
+- Codex se muestra como proceso detectado, incluso cuando todavía no puede vincularse a un JSONL.
+- Las relaciones de proceso hijo/descendiente se reflejan como árbol y se pueden contraer.
+- Si un Claude no tiene un padre detectable, puedes pulsar **Asociar manualmente a Codex**, escoger el PID del orquestador y confirmar. Se mostrará como **Vinculación confirmada manualmente**.
+- El botón **Desvincular de Codex** elimina esa relación manual.
+- La asociación queda vinculada a PID y timestamp de creación de **ambos** procesos, evitando reutilización accidental del PID en una sesión posterior.
+- Una asociación manual es tu declaración sobre la orquestación; no demuestra que el registro de tokens de Claude pertenezca al Codex padre. Solo se agregará consumo cuando exista atribución verificable.
+- El árbol se obtiene de `GET /api/topology`; `POST /api/topology/links` y `DELETE /api/topology/links/{child_pid}` guardan y eliminan asociaciones autorizadas con `X-Monitor-Key`.
+
+Las sesiones de conversación siguen estando disponibles debajo. El nuevo árbol **no sustituye** su historial ni sus eventos. No hay workflows de GitHub Actions.
+
+### Actualizar y verificar en Windows
+
+Detén el proceso Agent Monitor actual y ejecuta:
+
+```powershell
+cd C:\git\agent-workflow-monitor
+git pull
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m monitor serve
+```
+
+Actualiza el navegador con `Ctrl+F5` y consulta también `http://127.0.0.1:8765/api/topology`. Si los nodos Codex están presentes pero no sus sesiones, revisa el JSON de `/api/observer` para diagnosticar registros JSONL.
