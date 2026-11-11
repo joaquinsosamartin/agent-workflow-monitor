@@ -38,11 +38,11 @@ class ProcessWatchTests(unittest.TestCase):
         ]
         files = [{"run_id": "run1", "provider": "codex", "path": f"rollout-2026-11-11T10-00-00-{sid}.jsonl"},
                  {"run_id": "run2", "provider": "codex", "path": "rollout-old.jsonl"}]
-        registry.classify(runs, files)
+        result = registry.classify(runs, files)
         self.assertEqual(runs[0]["presence"], "waiting")
         self.assertTrue(runs[0]["process_verified"])
         self.assertEqual(runs[1]["presence"], "inactive")
-        self.assertEqual(registry.snapshot()["unmatched_processes"][0]["pid"], 102)
+        self.assertEqual(result["unmatched_processes"][0]["pid"], 102)
 
 
 if __name__ == "__main__":
