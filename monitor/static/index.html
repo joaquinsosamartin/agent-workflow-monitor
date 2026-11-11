@@ -15,7 +15,9 @@ button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid var(--
 .run.active-run{border-left:4px solid var(--green);background:#142a34;padding-left:10px;box-shadow:inset 0 0 20px rgba(89,216,173,.035)}
 .run.active-run.selected{background:#1c3945;border-color:#477e79}
 .run.active-run .run-state{color:var(--green)}.run-state{display:inline-block;font-size:11px;color:var(--muted);margin-top:6px}
-.run-title{font-size:13px;font-weight:650}.session-group{margin:22px 0 10px}
+.run-title{font-size:13px;font-weight:650}
+.run-activity{font-size:11px;color:#bdd0ea;margin-top:7px;line-height:1.4}
+.run-activity b{color:#8db8ff;font-weight:600}.session-group{margin:22px 0 10px}
 .session-header{width:100%;display:flex;justify-content:space-between;align-items:center;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--muted);padding:8px 3px;text-align:left;font-size:11px;font-weight:750;letter-spacing:1px}
 .session-count{font-size:11px;background:#263d57;color:#c4d7f0;border-radius:20px;padding:2px 7px;letter-spacing:0;margin-left:6px}
 .timestamp{color:#829cba;font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}.step-time{margin-top:5px}
@@ -105,6 +107,12 @@ function sessionButton(r){
  const active=r.status==="running",b=el("button","run"+(active?" active-run":"")+(r.id===selected?" selected":""));
  txt(b,"div","run-title",r.title);
  txt(b,"small","",r.project||"Local");
+ if(r.activity){
+  const activity=el("div","run-activity");
+  txt(activity,"b","",(r.activity.agent||"Agente")+" · ");
+  txt(activity,"span","",r.activity.title);
+  b.append(activity);
+ }
  txt(b,"span","run-state",(active?"● ":"○ ")+label(r.status));
  txt(b,"div","timestamp",dateTime(r.updated_at));
  b.onclick=()=>select(r.id);
