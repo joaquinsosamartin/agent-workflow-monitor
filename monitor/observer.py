@@ -253,10 +253,10 @@ class SessionObserver:
                         break
                     if len(line) > MAX_RECORD_BYTES:
                         self.last_errors[str(path)] = "Oversized transcript record"
-                        if line.endswith(b"\\n"):
+                        if line.endswith(b"\n"):
                             self._save_offset(path, provider, rid, f.tell())
                         break
-                    if not line.endswith(b"\\n"):
+                    if not line.endswith(b"\n"):
                         # Leave incomplete trailing JSON for the next poll.
                         break
                     try:
