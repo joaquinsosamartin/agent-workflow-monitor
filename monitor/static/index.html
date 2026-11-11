@@ -61,12 +61,12 @@ h1{font-size:27px;letter-spacing:-.7px;margin:15px 0 5px}.header{display:flex;al
 @media(max-width:750px){.layout{display:block}aside{border-right:0;border-bottom:1px solid var(--border);padding:18px}.brand{margin-bottom:12px}main{padding:20px}.card{padding:11px}.card b{font-size:17px}.cards{gap:7px}}
 </style></head>
 <body><div class="layout"><aside><div class="brand">◇ Agent Workflow <span>Monitor</span></div>
-<div class="eyebrow">PROCESS TREE</div><div id="process-tree"></div>
-<div class="eyebrow" style="margin-top:24px">SESIONES OBSERVADAS</div><div id="process-state" class="muted" style="font-size:11px;margin:8px 0 14px"></div><div id="runs"></div>
+<div class="eyebrow">EJECUCIONES ABIERTAS</div><div id="process-tree"></div>
+<div id="runs"></div>
 <button class="btn" id="demo">＋ Crear ejecución de demostración</button><p class="muted">SQLite local · SSE · Sin cloud</p>
 </aside><main id="view"><div class="empty">Selecciona una ejecución o crea una demostración.</div></main></div>
 <script>
-let key="",selected="",stream=null,snapshot=null,inactiveExpanded=false;
+let key="",selected="",stream=null,snapshot=null,inactiveExpanded=false,historyExpandedInSidebar=false;
 let lastRunSignature="",lastSnapshotSignature="",refreshTimer=null,historyExpanded=false,refreshing=false;
 let treeSignature="",processTreeOpened=new Set(),selectedProcess=null;
 let detailSelection={type:"none",id:null},selectionVersion=0,refreshRequestId=0;
@@ -209,7 +209,7 @@ function renderProcessTree(payload){
  collect(roots);
  const codexProcesses=allProcesses.filter(p=>p.provider==="codex");
  if(!roots.length){txt(box,"p","tree-hint","No se han detectado procesos CLI");return}
- txt(box,"div","tree-header",payload.process_count+" procesos CLI · "+payload.linked_sessions+" sesiones vinculadas");
+ txt(box,"div","tree-header",roots.length+" grupos de procesos abiertos · "+payload.linked_sessions+" sesiones identificadas");
  const treeNodes=(items,parent,depth=0)=>{
   for(const p of items){
    const wrap=el("div","tree-root");
@@ -281,7 +281,7 @@ function renderProcessTree(payload){
   }
  };
  treeNodes(roots,box);
- txt(box,"div","tree-hint","Jerarquía de procesos: automática cuando existe parentesco; puedes vincular manualmente Claude a Codex. Esto no confirma por sí solo una delegación de tareas.");
+ txt(box,"div","tree-hint","Solo procesos vivos, agrupados por parentesco. Un grupo no equivale necesariamente a una sesión; los registros antiguos están ocultos.");
 }
 async function refreshProcessTree(force=false){
  try{renderProcessTree((await getDashboard(force)).topology)}
@@ -290,82 +290,37 @@ async function refreshProcessTree(force=false){
 async function listRunsNoSelect(){
  const box=document.querySelector("#runs");
  const dashboard=await getDashboard();
- const runs=dashboard.runs,processData=dashboard.processes;
- const state=document.querySelector("#process-state");
- const counts=processData.processes_by_provider||{};
- state.textContent="Codex: "+(counts.codex||0)+" procesos · Claude: "+(counts.claude||0)+" · "+processData.verified_sessions+" sesiones vinculadas";
- state.title="Los procesos sin identificador de sesión verificable no se asignan a una ejecución";
- const sig=JSON.stringify([runs.map(r=>[r.id,r.title,r.project,r.presence,r.updated_at,r.activity?.title,r.activity?.agent]),detailSelection.type,selected,inactiveExpanded]);
+ const runs=dashboard.runs;
+ const sig=JSON.stringify([historyExpandedInSidebar,selected,detailSelection.type,
+   historyExpandedInSidebar ? runs.map(r=>[r.id,r.title,r.status,r.updated_at,r.presence]) : runs.length]);
  if(sig===lastRunSignature)return runs;
  lastRunSignature=sig;
  box.replaceChildren();
- const confirmed=runs.filter(r=>r.presence==="active"||r.presence==="waiting");
- const recent=runs.filter(r=>r.presence==="recent_unverified");
- const inactive=runs.filter(r=>r.presence==="inactive");
- const activeSection=el("section","session-group");
- const activeHeader=el("div","session-header");
- txt(activeHeader,"span","","● PROCESOS VINCULADOS");
- txt(activeHeader,"span","session-count",String(confirmed.length));
- activeSection.append(activeHeader);
- if(confirmed.length)confirmed.forEach(r=>activeSection.append(sessionButton(r)));
- else txt(activeSection,"p","muted","Sin sesiones vinculadas de forma verificable");
- box.append(activeSection);
- if(recent.length){
-  const section=el("section","session-group");
-  const head=el("div","session-header");
-  txt(head,"span","","◌ ACTIVIDAD RECIENTE · SIN VERIFICAR");
-  txt(head,"span","session-count",String(recent.length));
-  section.append(head);
-  const explanation=el("p","muted","Registro reciente; no confirma que siga abierta una ventana");
-  explanation.style.fontSize="11px";section.append(explanation);
-  recent.forEach(r=>section.append(sessionButton(r)));
-  box.append(section);
- }
- const unlinked=(processData.unmatched_processes||[]).filter(p=>p.provider==="codex"||p.provider==="claude");
- if(unlinked.length){
-  const section=el("section","session-group");
-  const head=el("div","session-header");
-  txt(head,"span","","◇ PROCESOS CLI DETECTADOS · SIN VINCULAR");
-  txt(head,"span","session-count",String(unlinked.length));
-  section.append(head);
-  const note=el("p","muted","Procesos Windows vivos. No equivale a sesiones o tareas activas.");
-  note.style.fontSize="11px";section.append(note);
-  const relations=processData.process_relationships||[];
-  const ids=new Set(unlinked.map(p=>p.pid));
-  const subordinate=new Set(relations.filter(r=>ids.has(r.parent_pid)&&ids.has(r.child_pid)).map(r=>r.child_pid));
-  // Show Codex first; group Claude children under the observed parent process.
-  const top=unlinked.filter(p=>!subordinate.has(p.pid)).sort((a,b)=>
-    (a.provider==="codex"?0:1)-(b.provider==="codex"?0:1) ||
-    (new Date(b.started_at||0)-new Date(a.started_at||0)));
-  for(const p of top.slice(0,20)){
-   const card=el("div","process-run");
-   if(p.provider==="codex")card.style.borderLeftColor="#68aafd";
-   txt(card,"div","run-title",(p.provider==="codex"?"Codex":"Claude")+" · PID "+p.pid);
-   const children=relations.filter(r=>r.parent_pid===p.pid&&ids.has(r.child_pid));
-   const desc=children.length
-     ?children.length+" subprocesos detectados (relación de procesos, no agentes confirmados)"
-     :"Proceso sin registro de sesión correlacionado";
-   txt(card,"div","process-hint",desc);
-   txt(card,"div","timestamp",p.started_at?"Iniciado · "+dateTime(p.started_at):"");
-   section.append(card);
-  }
-  box.append(section);
- }
- const inactiveSection=el("section","session-group");
+ const wrapper=el("section","session-group");
+ wrapper.style.marginTop="24px";
  const toggle=el("button","session-header");
- toggle.type="button";toggle.setAttribute("aria-expanded",String(inactiveExpanded));
- const heading=el("span","");heading.textContent="⌄ INACTIVAS E HISTÓRICAS";
- txt(heading,"span","session-count",String(inactive.length));
- toggle.append(heading,el("span","",inactiveExpanded?"⌃":"⌄"));
- toggle.onclick=()=>{inactiveExpanded=!inactiveExpanded;lastRunSignature="";listRunsNoSelect().catch(console.error)};
- inactiveSection.append(toggle);
- if(inactiveExpanded){
-  if(inactive.length)inactive.forEach(r=>inactiveSection.append(sessionButton(r)));
-  else txt(inactiveSection,"p","muted","Sin sesiones inactivas");
+ toggle.type="button";
+ toggle.setAttribute("aria-expanded",String(historyExpandedInSidebar));
+ const heading=el("span","",historyExpandedInSidebar?"▾ HISTORIAL DE SESIONES":"▸ HISTORIAL DE SESIONES");
+ txt(heading,"span","session-count",String(runs.length));
+ toggle.append(heading);
+ toggle.onclick=()=>{
+   historyExpandedInSidebar=!historyExpandedInSidebar;
+   lastRunSignature="";
+   listRunsNoSelect().catch(console.error);
+ };
+ wrapper.append(toggle);
+ if(historyExpandedInSidebar){
+   const note=el("p","tree-hint","Sesiones registradas anteriormente. No implica que estén abiertas.");
+   wrapper.append(note);
+   for(const run of runs){
+     wrapper.append(sessionButton(run));
+   }
  }
- box.append(inactiveSection);
+ box.append(wrapper);
  return runs;
 }
+
 function eventName(item){
  const payload=JSON.parse(item.payload||"{}");
  const id=payload.node_id;
@@ -423,7 +378,7 @@ function scheduleRefresh(){
 }
 async function listRuns(){
  const runs=await listRunsNoSelect();
- if(detailSelection.type==="none"&&runs.length)await select((runs.find(r=>r.presence==="active")||runs.find(r=>r.presence==="recent_unverified")||runs[0]).id);
+ // Do not auto-select a historical session; show only what the user clicks.
 }
 async function select(id){
  if(detailSelection.type==="session"&&selected===id)return;
@@ -439,7 +394,7 @@ async function select(id){
  lastSnapshotSignature="";lastRunSignature="";
  const runs=(await getDashboard()).runs;
  if(selectionVersion!==version||detailSelection.type!=="session")return;
- if(runs.find(r=>r.id===id&&r.presence==="inactive"))inactiveExpanded=true;
+ if(!historyExpandedInSidebar)historyExpandedInSidebar=true;
  await refresh(true);
  if(selectionVersion!==version||detailSelection.type!=="session")return;
  await listRunsNoSelect();
