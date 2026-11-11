@@ -176,3 +176,23 @@ For changes to appear after `git pull`, restart the FastAPI process and refresh 
 - The SQLite history is deliberately retained; no existing sessions are deleted by this update.
 
 After `git pull`, restart the monitor process and hard-refresh the browser. For an exact live-process count, a separate process-to-session association mechanism will be needed.
+
+## Process presence detection (v0.3)
+
+`psutil` enumerates Claude/Codex CLI processes locally (read-only). Use:
+
+```text
+http://127.0.0.1:8765/api/processes
+```
+
+The sidebar distinguishes **verified linked processes** (green when the transcript changed within 2 minutes, amber when the process exists but the transcript is idle), **recent unverified activity** (blue), and a collapsible **inactive/historical** section. It displays the total CLI processes detected and how many sessions could actually be linked.
+
+A correlation is marked *verified* only when the process command line explicitly contains an exact session UUID in a supported `resume <uuid>` / `--resume <uuid>` form and this UUID matches a local Claude/Codex transcript file. Many newly launched CLI processes do **not** expose their session IDs in the command line: these remain **unverified**, even though they may be live. We do not attach a process merely because it shares a working directory or project name.
+
+Process count and session count are different: terminal wrappers, resumed sessions, previous conversation IDs and subagents can cause discrepancies. Also, corporate security software can restrict process inspection. A verified "waiting" process is still running but is not emitting new transcript lines.
+
+Use `git pull`, install the changed dependencies with
+` .\.venv\Scripts\python.exe -m pip install -r requirements.txt `,
+stop the old monitor process and run it again. This update is intentionally read-only and retains all historical SQLite records.
+
+The Orca adapter, Claude Mod, and Codex plugin are still future integrations; this release only enriches the common local monitor.
