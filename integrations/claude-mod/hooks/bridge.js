@@ -100,3 +100,9 @@ export async function sendClaudeTask($, entry) {
     }),
   });
 }
+
+export async function loadDelegatedExecutions($, planId) {
+  if(!planId)return [];
+  const result=await request($,"/api/workflows/"+encodeURIComponent(planId)+"/executions");
+  return Array.isArray(result)?result:[];
+}
