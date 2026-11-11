@@ -254,7 +254,10 @@ def current_manual_links(processes):
     return valid
 
 @app.post('/api/topology/links',dependencies=[Depends(authorize)])
-def create_process_link(data:ProcessLinkIn):
+async def create_process_link(data:ProcessLinkIn):
+    return await bounded(_create_process_link, data, operation='topology link')
+
+def _create_process_link(data:ProcessLinkIn):
     if data.parent_pid == data.child_pid:
         raise HTTPException(400,"Cannot link a process to itself")
     snap=process_registry.snapshot()
@@ -281,7 +284,10 @@ def create_process_link(data:ProcessLinkIn):
     return {"linked":True,"parent_pid":data.parent_pid,"child_pid":data.child_pid}
 
 @app.delete('/api/topology/links/{child_pid}',dependencies=[Depends(authorize)])
-def delete_process_link(child_pid:int):
+async def delete_process_link(child_pid:int):
+    return await bounded(_delete_process_link, child_pid, operation='topology unlink')
+
+def _delete_process_link(child_pid:int):
     snap=process_registry.snapshot()
     child=next((p for p in snap["processes"] if p["pid"]==child_pid),None)
     if child:
