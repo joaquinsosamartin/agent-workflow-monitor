@@ -1,3 +1,4 @@
+import {sendSnapshot,bridgeStatus} from "./bridge.js";
 /* Claude Code Mod — local, read-only workflow view.
  * All hooks pass through Claude's ordinary behavior; no tools are intercepted.
  * This version draws its own Pane and shows only data exposed by the Mods API.
@@ -43,6 +44,16 @@ async function capture($) {
   }
   $.ui.invalidate("ui.render");
 }
+function publish($, latestTool=null) {
+  // Best-effort, asynchronous telemetry. It must never prevent Claude from
+  // answering or executing tools if the local monitor is not running.
+  void sendSnapshot($,{
+    status:state.status,
+    agents:state.agents,
+    context:state.usage,
+    lastTool:latestTool,
+  }).catch(()=>$.ui.invalidate("ui.render"));
+}
 function draw($, e) {
   const {Box,Text,Button}=$.ui.resolve(e);
   const line=(value,color)=>color==="gray"
@@ -52,6 +63,7 @@ function draw($, e) {
     Text({children:"AGENT WORKFLOW MONITOR",bold:true,color:"cyan"}),
     Text({children:"made with ❤️ by joaquinsosa.es",dimColor:true}),
     line("Estado: "+state.status+"  ·  Herramientas: "+state.toolCount),
+    line("Monitor local: "+(bridgeStatus().connected?"conectado":bridgeStatus().error?"no disponible":"sin sincronizar"),bridgeStatus().connected?"green":"gray"),
   ];
   if(state.usage?.window) {
     rows.push(line("Contexto: "+short(state.usage.tokens??0)+" / "+short(state.usage.window)+" · "+(state.usage.percent??"—")+"%","cyan"));
@@ -87,13 +99,15 @@ function draw($, e) {
     rows.push(line(entry.time+"  "+entry.agent+" · "+entry.tool));
   }
   if(state.error)rows.push(line("Diagnóstico: "+state.error,"yellow"));
-  rows.push(Button({label:"Actualizar",onPress:()=>capture($)}));
+  if(bridgeStatus().error)rows.push(line("Puente: "+bridgeStatus().error,"yellow"));
+  rows.push(Button({label:"Actualizar",onPress:async()=>{await capture($);publish($)}}));
   rows.push(Button({label:"Cerrar panel",onPress:async()=>{state.open=false;await $.ui.close({id:PANE_ID})}}));
   return Box({flexDirection:"column",paddingX:1,children:rows});
 }
 async function open($){
   state.open=true;
   await capture($);
+  publish($);
   const placement=await $.ui.open({id:PANE_ID,title:"Agent Workflow",focus:true});
   return placement;
 }
@@ -120,11 +134,13 @@ export function register(on){
     const result=await next(e);
     if(!e.agentId)state.status="waiting";
     await capture($);
+    publish($,state.tools[state.tools.length-1]??null);
     return result;
   });
   on("agent.spawn",async($,e,next)=>{
     const result=await next(e);
     await capture($);
+    publish($);
     return result;
   });
   on("tool.call",async($,e,next)=>{
