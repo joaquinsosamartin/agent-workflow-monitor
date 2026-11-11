@@ -165,3 +165,14 @@ Session titles are derived from the **first user instruction** in a Claude or Co
 Session inactivity is inferred from transcript modification time. An inactive session may still have an open process or be waiting for human input.
 
 For changes to appear after `git pull`, restart the FastAPI process and refresh the browser (Ctrl+F5). Previous discovered transcripts are processed incrementally, so titles of **already ingested** sessions may retain fallback values; newly created sessions acquire descriptive titles automatically.
+
+## Less noisy workflow UI (2026-11-11)
+
+- All agent actions/substeps now **start collapsed**. Click a workflow node to reveal them, and click nested nodes to expand deeper operations.
+- The overall event history is hidden until you select **Ver historial de acciones**.
+- SSE notifications are debounced for 2 seconds. Unchanged session lists are not reconstructed. The SSE endpoint sends only *new* events when no cursor is provided; historical events remain accessible through `/history`.
+- Previously discovered sessions are reconciled even when their transcript files fall outside the discovery lookback, preventing stale `running` statuses from persisting forever.
+- **Active means recent transcript activity, not verified live OS processes.** The observer waits up to 2 minutes without transcript modification before marking an observed session idle. Claude/Codex sessions may outnumber currently open windows because one CLI can have multiple conversation IDs, session resumes, and past sessions in SQLite. Demo runs and manually created runs are also stored independently.
+- The SQLite history is deliberately retained; no existing sessions are deleted by this update.
+
+After `git pull`, restart the monitor process and hard-refresh the browser. For an exact live-process count, a separate process-to-session association mechanism will be needed.
