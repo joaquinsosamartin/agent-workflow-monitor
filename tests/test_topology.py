@@ -28,6 +28,20 @@ class ProcessTreeTests(unittest.TestCase):
         self.assertEqual([p["pid"] for p in result["roots"]],[10,20])
         self.assertEqual(result["linked_sessions"],0)
 
+    def test_user_confirmed_link_overrides_process_ancestry(self):
+        processes=[
+            {"pid":10,"provider":"codex"},
+            {"pid":20,"provider":"claude"},
+            {"pid":30,"provider":"claude"}
+        ]
+        observed=[{"parent_pid":30,"child_pid":20,"relation":"process_parent","depth":1}]
+        confirmed=[{"parent_pid":10,"child_pid":20}]
+        result=build_process_tree(processes,observed,[],confirmed)
+        codex=next(n for n in result["roots"] if n["pid"]==10)
+        self.assertEqual(len(codex["children"]),1)
+        self.assertEqual(codex["children"][0]["pid"],20)
+        self.assertEqual(codex["children"][0]["relation"],"user_confirmed")
+
     def test_cycles_are_ignored(self):
         processes=[{"pid":10,"provider":"codex"},{"pid":20,"provider":"claude"}]
         links=[
