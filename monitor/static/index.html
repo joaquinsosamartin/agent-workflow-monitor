@@ -8,6 +8,10 @@
 .layout{max-width:1200px;margin:auto;display:grid;grid-template-columns:290px minmax(300px,1fr);min-height:100vh}
 aside{border-right:1px solid var(--border);padding:27px 18px}main{padding:32px 40px;max-width:850px;width:100%;margin:0 auto;align-self:start;min-height:0}
 .brand{font-size:17px;font-weight:750;margin-bottom:33px}.brand span{color:var(--blue)}
+.brand .brand-byline{font-size:11px;font-weight:400;letter-spacing:.1px;color:#92a9c5;margin-top:4px;padding-left:2px}
+.brand .brand-byline .heart{color:#f37688}
+.brand .brand-byline a{color:#9fc6ff;text-decoration:none;font-weight:600}
+.brand .brand-byline a:hover,.brand .brand-byline a:focus-visible{text-decoration:underline;color:#d1e5ff}
 small,.muted{color:var(--muted)}.eyebrow{color:#86a5d0;letter-spacing:2px;font-size:11px;font-weight:700}
 button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid var(--blue)}
 .run{width:100%;text-align:left;display:block;background:transparent;border:1px solid transparent;padding:13px;margin:8px 0;color:inherit;border-radius:12px}
@@ -69,7 +73,8 @@ h1{font-size:27px;letter-spacing:-.7px;margin:15px 0 5px}.header{display:flex;al
 .empty{padding:34px;border:1px dashed var(--border);border-radius:15px;color:var(--muted)}
 @media(max-width:750px){.layout{display:block}aside{border-right:0;border-bottom:1px solid var(--border);padding:18px}.brand{margin-bottom:12px}main{padding:20px}.card{padding:11px}.card b{font-size:17px}.cards{gap:7px}}
 </style></head>
-<body><div class="layout"><aside><div class="brand">◇ Agent Workflow <span>Monitor</span></div>
+<body><div class="layout"><aside><div class="brand">◇ Agent Workflow <span>Monitor</span>
+<div class="brand-byline">made with <span class="heart" aria-label="love">❤️</span> by <a href="https://joaquinsosa.es" target="_blank" rel="noopener noreferrer">joaquinsosa.es</a></div></div>
 <div class="eyebrow">EJECUCIONES ABIERTAS</div><div id="process-tree"></div>
 <div id="runs"></div>
 <button class="btn" id="demo">＋ Crear ejecución de demostración</button><p class="muted">SQLite local · SSE · Sin cloud</p>
