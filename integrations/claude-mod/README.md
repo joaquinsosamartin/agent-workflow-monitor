@@ -33,9 +33,50 @@ If you get a `ui.render` validation error, run `claude --debug --plugin-dir .\in
 - The UI reads only the Claude Code **session** and subagents of the Claude instance where it is installed.
 - It does not infer cross-process Codex → Claude orchestration by time or directory name.
 - Context tokens are **not** billable token usage; dollar costs are not fabricated.
-- The Python backend already monitors JSONL sessions locally, but this first iteration does **not yet push** Mod events to FastAPI. The bridge and full native vertical stepper are subsequent stages.
+- **Local bridge now implemented (v0.2)**: the Mod attempts to send Claude session status, named subagents and the last tool name to `http://127.0.0.1:8765/api/integrations/claude/events` using the host-mediated `$.http.fetch`. It shares session IDs with the JSONL observer to avoid duplicate runs.
+- The bridge is best-effort: if the local backend is stopped or Claude policy refuses loopback network access, the native panel continues functioning, and its “Monitor local” row shows why.
+- Tokens shown as `Contexto` are **context-window occupancy**, not billable token usage. No guessed USD costs are sent or saved by the Mod. Existing JSONL usage stays the source for token counters.
+- A full vertical phase/step plan and task-level costs will require stronger workflow events than Claude's raw tool call stream.
 - Pane docking depends on Claude Code surface and terminal width.
 
 Documentation: https://code.claude.com/docs/en/plugins/mods/create
 
 No GitHub Actions are used.
+
+## Run the local backend and Claude Mod together (Windows)
+
+Start Agent Workflow Monitor in one PowerShell terminal:
+
+```powershell
+cd C:\git\agent-workflow-monitor
+git pull
+.\.venv\Scripts\python.exe -m monitor serve
+```
+
+In another PowerShell window:
+
+```powershell
+cd C:\git\agent-workflow-monitor
+claude plugin validate .\integrations\claude-mod
+claude --plugin-dir .\integrations\claude-mod
+```
+
+Inside Claude Code, run `/workflow` and then ask Claude to execute a small task. When the turn finishes, the Mod will attempt to synchronize the session and any named subagents. The pane displays `Monitor local: conectado` if the request succeeds.
+
+The endpoint is local-only and requires the same `X-Monitor-Key` used by other Agent Monitor APIs. The Mod retrieves the key via the localhost bootstrap route and does **not** include prompts, tool arguments, tool outputs or transcript bodies in its payload. Only use this plugin with a local monitor instance you trust.
+
+### Diagnostics
+
+- Monitor status: `http://127.0.0.1:8765/api/health`
+- Claude Mod ingestion endpoint: `POST /api/integrations/claude/events`
+- Open the web UI and expand **Historial de sesiones** to inspect a Mod-synchronized run. If the Claude process has no verified PID-to-session correlation, it may not appear within the process-only tree.
+- If the pane says `Monitor local: no disponible`, inspect its error text and Claude's debug output. Some installations may restrict `$.http.fetch` to loopback or disable it by policy.
+- The Mod requires a new Claude process after changes to its source unless your installation supports hot reload.
+
+Run local Python tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+No GitHub Actions have been configured or run for this feature.
