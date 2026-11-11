@@ -14,6 +14,8 @@ button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid var(--
 .run.selected{border-color:#4a6990;background:#1d2e47}.run small{display:block;margin-top:5px}
 .run.active-run{border-left:4px solid var(--green);background:#142a34;padding-left:10px;box-shadow:inset 0 0 20px rgba(89,216,173,.035)}
 .run.active-run.selected{background:#1c3945;border-color:#477e79}
+.process-run{background:#142539;border:1px solid #344866;border-radius:10px;padding:10px 12px;margin-top:8px;border-left:3px solid #6ba8fc}
+.process-run .run-title{font-size:12px}.process-hint{font-size:11px;color:#9bb2d0;margin-top:3px}
 .run.waiting-run{border-left:4px solid #dcb977;background:#322d24;padding-left:10px}
 .run.recent-run{border-left:3px solid #78aaf1;background:#192840;padding-left:11px}
 .run.active-run .run-state{color:var(--green)}.run.waiting-run .run-state{color:#f0cf8d}.run.recent-run .run-state{color:#a8c9ff}.run-state{display:inline-block;font-size:11px;color:var(--muted);margin-top:6px}
@@ -131,7 +133,8 @@ async function listRunsNoSelect(){
  const box=document.querySelector("#runs");
  const [runs, processData]=await Promise.all([get("/api/runs"),get("/api/processes")]);
  const state=document.querySelector("#process-state");
- state.textContent=processData.detected_processes+" procesos CLI detectados · "+processData.verified_sessions+" sesiones vinculadas";
+ const counts=processData.processes_by_provider||{};
+ state.textContent="Codex: "+(counts.codex||0)+" procesos · Claude: "+(counts.claude||0)+" · "+processData.verified_sessions+" sesiones vinculadas";
  state.title="Los procesos sin identificador de sesión verificable no se asignan a una ejecución";
  const sig=JSON.stringify([runs.map(r=>[r.id,r.title,r.project,r.presence,r.updated_at,r.activity?.title,r.activity?.agent]),selected,inactiveExpanded]);
  if(sig===lastRunSignature)return runs;
@@ -172,6 +175,29 @@ async function listRunsNoSelect(){
   else txt(inactiveSection,"p","muted","Sin sesiones inactivas");
  }
  box.append(inactiveSection);
+ const unlinked=(processData.unmatched_processes||[]).filter(p=>p.provider==="codex"||p.provider==="claude");
+ if(unlinked.length){
+  const processSection=el("section","session-group");
+  const head=el("div","session-header");
+  txt(head,"span","","◇ PROCESOS SIN SESIÓN VINCULADA");
+  txt(head,"span","session-count",String(unlinked.length));
+  processSection.append(head);
+  const hint=el("p","muted","Procesos encontrados en Windows, pero todavía sin un registro de sesión correlacionado.");
+  hint.style.fontSize="11px";processSection.append(hint);
+  const relations=processData.process_relationships||[];
+  for(const p of unlinked.slice(0,30)){
+   const row=el("div","process-run");
+   txt(row,"div","run-title",(p.provider==="codex"?"Codex":"Claude")+" · PID "+p.pid);
+   const children=relations.filter(r=>r.parent_pid===p.pid);
+   const summary=children.length
+     ?children.length+" proceso(s) hijo(s): "+children.map(c=>c.child_provider).join(", ")
+     :"Sin relación de orquestación verificable";
+   txt(row,"div","process-hint",summary);
+   txt(row,"div","timestamp",p.started_at?"Iniciado · "+dateTime(p.started_at):"");
+   processSection.append(row);
+  }
+  box.append(processSection);
+ }
  return runs;
 }
 function eventName(item){
