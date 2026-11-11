@@ -70,3 +70,13 @@ export async function sendSnapshot($, data) {
   }).finally(()=>{sending=null});
   return sending;
 }
+
+export async function listSharedWorkflows($) {
+  const result=await request($,"/api/workflows");
+  return Array.isArray(result)?result:[];
+}
+export async function loadSharedWorkflow($, planId) {
+  if(!planId)return null;
+  const key=encodeURIComponent(planId);
+  return await request($,"/api/workflows/"+key);
+}
