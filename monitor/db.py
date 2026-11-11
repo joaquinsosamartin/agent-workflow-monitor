@@ -1,6 +1,8 @@
 import json
 import sqlite3
 import threading
+from time import perf_counter
+from .performance import perf
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -69,6 +71,13 @@ class Store:
         return nid
 
     def save_event(self, event):
+        started=perf_counter()
+        try:
+            return self._save_event_impl(event)
+        finally:
+            perf.observe("sqlite.event_write_ms", (perf_counter()-started)*1000)
+
+    def _save_event_impl(self, event):
         kind=event['type']; rid=event['run_id']; nid=event.get('node_id')
         with self.lock, self.conn:
             if not self.conn.execute('SELECT 1 FROM runs WHERE id=?',(rid,)).fetchone():
