@@ -104,7 +104,19 @@ class Store:
 
     def run_list(self):
         with self.lock:
-            return [dict(r) for r in self.conn.execute('SELECT * FROM runs ORDER BY updated_at DESC LIMIT 100')]
+            runs = [dict(r) for r in self.conn.execute(
+                'SELECT * FROM runs ORDER BY updated_at DESC LIMIT 100')]
+            for run in runs:
+                # Show the latest running tool/subagent as the activity subtitle.
+                # If none are running, show the last updated child operation.
+                latest = self.conn.execute("""
+                    SELECT title,agent,status,updated_at FROM nodes
+                    WHERE run_id=? AND parent_id IS NOT NULL
+                    ORDER BY CASE WHEN status='running' THEN 0 ELSE 1 END,
+                             updated_at DESC, rowid DESC LIMIT 1
+                """, (run['id'],)).fetchone()
+                run['activity'] = dict(latest) if latest else None
+            return runs
 
     def event_list(self, run_id, after=0, limit=100):
         with self.lock:
