@@ -14,7 +14,9 @@ button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid var(--
 .run.selected{border-color:#4a6990;background:#1d2e47}.run small{display:block;margin-top:5px}
 .run.active-run{border-left:4px solid var(--green);background:#142a34;padding-left:10px;box-shadow:inset 0 0 20px rgba(89,216,173,.035)}
 .run.active-run.selected{background:#1c3945;border-color:#477e79}
-.run.active-run .run-state{color:var(--green)}.run-state{display:inline-block;font-size:11px;color:var(--muted);margin-top:6px}
+.run.waiting-run{border-left:4px solid #dcb977;background:#322d24;padding-left:10px}
+.run.recent-run{border-left:3px solid #78aaf1;background:#192840;padding-left:11px}
+.run.active-run .run-state{color:var(--green)}.run.waiting-run .run-state{color:#f0cf8d}.run.recent-run .run-state{color:#a8c9ff}.run-state{display:inline-block;font-size:11px;color:var(--muted);margin-top:6px}
 .run-title{font-size:13px;font-weight:650}
 .run-activity{font-size:11px;color:#bdd0ea;margin-top:7px;line-height:1.4}
 .run-activity b{color:#8db8ff;font-weight:600}.session-group{margin:22px 0 10px}
@@ -109,40 +111,54 @@ function render(data){snapshot=data;const view=document.querySelector("#view");v
  txt(view,"div","footer","◉ SQLite local · Actualización SSE · Costes reportados/estimados según proveedor");
 }
 function sessionButton(r){
- const active=r.status==="running",b=el("button","run"+(active?" active-run":"")+(r.id===selected?" selected":""));
+ const active=r.presence==="active",waiting=r.presence==="waiting",recent=r.presence==="recent_unverified";
+ const b=el("button","run"+(active?" active-run":waiting?" waiting-run":recent?" recent-run":"")+(r.id===selected?" selected":""));
  txt(b,"div","run-title",r.title);
  txt(b,"small","",r.project||"Local");
- if(r.activity&&active){
+ if(r.activity&&(active||waiting||recent)){
   const activity=el("div","run-activity");
   txt(activity,"b","",(r.activity.agent||"Agente")+" · ");
   txt(activity,"span","",r.activity.title);
   b.append(activity);
  }
- txt(b,"span","run-state",(active?"● ":"○ ")+label(r.status));
+ const presenceName=active?"Activo · proceso verificado":waiting?"En espera · proceso verificado":recent?"Actividad reciente · sin verificar":"Inactiva / histórica";
+ txt(b,"span","run-state",(active?"● ":waiting?"◐ ":recent?"◌ ":"○ ")+presenceName);
  txt(b,"div","timestamp",dateTime(r.updated_at));
  b.onclick=()=>select(r.id);
  return b;
 }
 async function listRunsNoSelect(){
  const box=document.querySelector("#runs"),runs=await get("/api/runs");
- const sig=JSON.stringify([runs.map(r=>[r.id,r.title,r.project,r.status,r.updated_at,r.activity?.title,r.activity?.agent]),selected,inactiveExpanded]);
+ const sig=JSON.stringify([runs.map(r=>[r.id,r.title,r.project,r.presence,r.updated_at,r.activity?.title,r.activity?.agent]),selected,inactiveExpanded]);
  if(sig===lastRunSignature)return runs;
  lastRunSignature=sig;
  box.replaceChildren();
- const active=runs.filter(r=>r.status==="running");
- const inactive=runs.filter(r=>r.status!=="running");
+ const confirmed=runs.filter(r=>r.presence==="active"||r.presence==="waiting");
+ const recent=runs.filter(r=>r.presence==="recent_unverified");
+ const inactive=runs.filter(r=>r.presence==="inactive");
  const activeSection=el("section","session-group");
  const activeHeader=el("div","session-header");
- txt(activeHeader,"span","","● SESIONES ACTIVAS");
- txt(activeHeader,"span","session-count",String(active.length));
+ txt(activeHeader,"span","","● PROCESOS VINCULADOS");
+ txt(activeHeader,"span","session-count",String(confirmed.length));
  activeSection.append(activeHeader);
- if(active.length)active.forEach(r=>activeSection.append(sessionButton(r)));
- else txt(activeSection,"p","muted","No hay sesiones en ejecución");
+ if(confirmed.length)confirmed.forEach(r=>activeSection.append(sessionButton(r)));
+ else txt(activeSection,"p","muted","Sin sesiones vinculadas de forma verificable");
  box.append(activeSection);
+ if(recent.length){
+  const section=el("section","session-group");
+  const head=el("div","session-header");
+  txt(head,"span","","◌ ACTIVIDAD RECIENTE · SIN VERIFICAR");
+  txt(head,"span","session-count",String(recent.length));
+  section.append(head);
+  const explanation=el("p","muted","Registro reciente; no confirma que siga abierta una ventana");
+  explanation.style.fontSize="11px";section.append(explanation);
+  recent.forEach(r=>section.append(sessionButton(r)));
+  box.append(section);
+ }
  const inactiveSection=el("section","session-group");
  const toggle=el("button","session-header");
  toggle.type="button";toggle.setAttribute("aria-expanded",String(inactiveExpanded));
- const heading=el("span","");heading.textContent="◌ SESIONES INACTIVAS";
+ const heading=el("span","");heading.textContent="⌄ INACTIVAS E HISTÓRICAS";
  txt(heading,"span","session-count",String(inactive.length));
  toggle.append(heading,el("span","",inactiveExpanded?"⌃":"⌄"));
  toggle.onclick=()=>{inactiveExpanded=!inactiveExpanded;listRunsNoSelect().catch(console.error)};
@@ -211,7 +227,7 @@ function scheduleRefresh(){
 }
 async function listRuns(){
  const runs=await listRunsNoSelect();
- if(!selected&&runs.length)await select((runs.find(r=>r.status==="running")||runs[0]).id);
+ if(!selected&&runs.length)await select((runs.find(r=>r.presence==="active")||runs.find(r=>r.presence==="recent_unverified")||runs[0]).id);
 }
 async function select(id){
  if(selected===id)return;
@@ -221,7 +237,7 @@ async function select(id){
  opened.clear();closed.clear();historyExpanded=false;
  lastSnapshotSignature="";lastRunSignature="";
  const runs=await get("/api/runs");
- if(runs.find(r=>r.id===id&&r.status!=="running"))inactiveExpanded=true;
+ if(runs.find(r=>r.id===id&&r.presence==="inactive"))inactiveExpanded=true;
  await refresh(true);
  await listRunsNoSelect();
  stream=new EventSource("/api/runs/"+encodeURIComponent(id)+"/events");
