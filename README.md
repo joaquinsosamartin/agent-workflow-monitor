@@ -319,3 +319,50 @@ When selecting a **Codex process** in the live process tree, the right-side *Age
 Process ancestry or a manually confirmed link identifies grouping only; it does **not** prove agent delegation or token attribution. No separate Claude costs are added to the Codex totals unless an attributable session is available. The display refreshes on topology changes without forcing selection to the latest active session.
 
 UI-only update: `git pull` and browser `Ctrl+F5` while the local FastAPI server serves the same working tree. GitHub Actions are not configured or run.
+
+## Multi-agent plans: phases can belong to different providers
+
+A plan is independent of any one Claude or Codex session. Phases and subphases
+have stable IDs, explicit `provider` (`codex`, `claude`, `orca`, `system`, `other`),
+`agent_id`, `status`, optional `session_id`, and timestamps.
+
+- `POST /api/workflows` — create/update a plan (requires `X-Monitor-Key`)
+- `GET /api/workflows` — list shared plans
+- `GET /api/workflows/{id}` — full tree of phases/subphases
+- `POST /api/workflows/{id}/phases/{phase_id}` — update status,
+  provider, agent or session; idempotent using an `event_id`
+
+A phase can transfer ownership from Codex to Claude without being duplicated.
+An orchestrator can delegate different subphases to different providers and
+run them concurrently. Provider ownership is separate from task completion.
+The schema does not claim that execution actually occurred; events must
+come from the relevant agent integration.
+
+### Create a sample plan locally on Windows
+
+With the backend running in another PowerShell terminal:
+
+```powershell
+cd C:\git\agent-workflow-monitor
+$key = (Get-Content "$HOME\.agent-monitor\api.key").Trim()
+$body = Get-Content .\examples\multi-agent-workflow.json -Raw
+Invoke-RestMethod "http://127.0.0.1:8765/api/workflows" `
+    -Method Post -ContentType "application/json" `
+    -Headers @{ "X-Monitor-Key" = $key } -Body $body
+```
+
+Then open Claude with the Mod:
+
+```powershell
+claude --plugin-dir .\integrations\claude-mod
+```
+
+Inside Claude run `/workflow`, select the **POPS — Customer API** plan
+and expand phases. The Mod displays provider labels (Codex/Claude) and
+nested steps from the shared backend. Existing agent data and session
+activity are shown separately.
+
+The Mod's plan view is **read-only** in this iteration: it does not
+automatically infer completion from file edits or tool names. Further work
+will add explicit `TaskCreate/TaskUpdate` mapping and adapters for Codex/Orca.
+No GitHub Actions are configured or run.
