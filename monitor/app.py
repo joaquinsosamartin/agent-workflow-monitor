@@ -180,15 +180,88 @@ def get_processes():
         }
     }
 
+
+class ProcessLinkIn(BaseModel):
+    parent_pid: int=Field(gt=0)
+    child_pid: int=Field(gt=0)
+
+with store.lock, store.conn:
+    store.conn.execute("""
+        CREATE TABLE IF NOT EXISTS process_links (
+            child_pid INTEGER NOT NULL, child_started_at TEXT NOT NULL,
+            parent_pid INTEGER NOT NULL, parent_started_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(child_pid, child_started_at)
+        )
+    """)
+
+def current_manual_links(processes):
+    by_pid={p["pid"]:p for p in processes["processes"]}
+    with store.lock:
+        rows=store.conn.execute(
+            "SELECT * FROM process_links ORDER BY created_at DESC"
+        ).fetchall()
+    valid=[]
+    for row in rows:
+        parent=by_pid.get(row["parent_pid"])
+        child=by_pid.get(row["child_pid"])
+        if (parent and child
+            and parent.get("started_at") == row["parent_started_at"]
+            and child.get("started_at") == row["child_started_at"]
+            and parent.get("provider") == "codex"
+            and child.get("provider") == "claude"):
+            valid.append({"parent_pid":row["parent_pid"],"child_pid":row["child_pid"],
+                          "relation":"user_confirmed"})
+    return valid
+
+@app.post('/api/topology/links',dependencies=[Depends(authorize)])
+def create_process_link(data:ProcessLinkIn):
+    if data.parent_pid == data.child_pid:
+        raise HTTPException(400,"Cannot link a process to itself")
+    snap=process_registry.snapshot()
+    current={p["pid"]:p for p in snap["processes"]}
+    parent=current.get(data.parent_pid)
+    child=current.get(data.child_pid)
+    if not parent or parent["provider"]!="codex":
+        raise HTTPException(400,"Codex parent process is not running")
+    if not child or child["provider"]!="claude":
+        raise HTTPException(400,"Claude child process is not running")
+    if not parent.get("started_at") or not child.get("started_at"):
+        raise HTTPException(400,"Missing process creation time")
+    from .db import utc
+    with store.lock,store.conn:
+        store.conn.execute("""
+            INSERT INTO process_links(child_pid,child_started_at,parent_pid,parent_started_at,created_at)
+            VALUES(?,?,?,?,?)
+            ON CONFLICT(child_pid,child_started_at)
+            DO UPDATE SET parent_pid=excluded.parent_pid,
+                          parent_started_at=excluded.parent_started_at,
+                          created_at=excluded.created_at
+        """,(data.child_pid,child["started_at"],
+              data.parent_pid,parent["started_at"],utc()))
+    return {"linked":True,"parent_pid":data.parent_pid,"child_pid":data.child_pid}
+
+@app.delete('/api/topology/links/{child_pid}',dependencies=[Depends(authorize)])
+def delete_process_link(child_pid:int):
+    snap=process_registry.snapshot()
+    child=next((p for p in snap["processes"] if p["pid"]==child_pid),None)
+    if child:
+        with store.lock,store.conn:
+            store.conn.execute("DELETE FROM process_links WHERE child_pid=? AND child_started_at=?",
+                               (child_pid,child.get("started_at")))
+    return {"removed":True}
+
 @app.get('/api/topology')
 def get_topology():
     from .topology import build_process_tree
     runs, processes = classified_runs()
+    manual = current_manual_links(processes)
     return {
         **build_process_tree(processes['processes'],
-                             processes['process_relationships'], runs),
+                             processes['process_relationships'], runs, manual),
         'checked_at': processes['checked_at'],
-        'note': 'Hierarchy is based on OS process ancestry, not confirmed agent delegation.'
+        'manual_links': manual,
+        'note': 'OS process ancestry is observational; user-confirmed links are explicit, not inferred.'
     }
 
 @app.post('/api/runs',dependencies=[Depends(authorize)])
