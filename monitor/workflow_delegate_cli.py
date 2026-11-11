@@ -16,6 +16,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from uuid import uuid4
+from urllib.parse import quote
 
 
 def local_key() -> str:
@@ -57,7 +58,7 @@ def delegate(args) -> int:
             "orchestrator_session_id":args.orchestrator_session,
             "pid":child.pid,
         }
-        send(args.port, f"/api/workflows/{args.plan}/phases/{args.phase}/executions",
+        send(args.port, f"/api/workflows/{quote(args.plan,safe='')}/phases/{quote(args.phase,safe='')}/executions",
              start_payload,key)
         started=True
         exit_code=child.wait()
@@ -85,7 +86,7 @@ def delegate(args) -> int:
                 child.returncode if child.returncode is not None else 1
             )
             try:
-                send(args.port,f"/api/workflows/executions/{execution_id}/finish",
+                send(args.port,f"/api/workflows/executions/{quote(execution_id,safe='')}/finish",
                      {"exit_code":actual_exit,"event_id":str(uuid4())},key)
             except (OSError,ValueError,urllib.error.HTTPError) as exc:
                 print(f"Agent Monitor: could not report completion: {exc}",
