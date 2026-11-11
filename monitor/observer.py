@@ -43,10 +43,10 @@ def short_title(value, fallback="", limit=105):
     if not isinstance(value,str):
         return fallback
     import re
-    line = re.sub(r"\\s+", " ", value).strip()
+    line = re.sub(r"\s+", " ", value).strip()
     if not line or line.startswith(("<", "{")):
         return fallback
-    line = re.sub(r"(?i)(sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{12,}|Bearer\\s+\\S+)", "[redacted]", line)
+    line = re.sub(r"(?i)(sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{12,}|Bearer\s+\S+)", "[redacted]", line)
     return (line[:limit-1].rstrip()+"…") if len(line)>limit else line
 
 
@@ -271,6 +271,9 @@ class SessionObserver:
         if is_subagent:
             target = self._ensure_node(rid, f"agent:{agent_id}", f"Subagent · {str(agent_id)[:12]}",
                                        f"Claude · {str(agent_id)[:12]}", "claude", parent)
+            agent_task = short_title(row.get("description") or row.get("task"))
+            if agent_task:
+                self.store.set_node_title(target, agent_task, "Subagent ·")
         if typ == "user" and not is_subagent:
             title=user_title(row.get("message"))
             if title:
@@ -316,8 +319,7 @@ class SessionObserver:
                     tool_title=f"Tool · {name[:70]}"
                 node = self._ensure_node(rid, f"tool:{agent_id or 'main'}:{call}",
                                          tool_title, "Claude", "claude", target)
-                if name in ("Task","Agent") and description:
-                    self.store.set_node_title(target, description, "Subagent ·") if is_subagent else None
+
                 self._emit({"run_id":rid,"type":"node.status","node_id":node,
                             "status":"running","external_id":f"claude-tool-start:{call}"})
         elif typ == "user":
