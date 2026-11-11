@@ -1,0 +1,8 @@
+{
+  "name": "agent-workflow-monitor",
+  "version": "0.1.0",
+  "description": "Local workflow and subagent status pane for Claude Code",
+  "author": {
+    "name": "Agent Workflow Monitor"
+  }
+}
