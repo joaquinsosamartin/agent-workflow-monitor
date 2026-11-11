@@ -1,4 +1,4 @@
-import {sendSnapshot,bridgeStatus} from "./bridge.js";
+import {sendSnapshot,bridgeStatus,listSharedWorkflows,loadSharedWorkflow} from "./bridge.js";
 /* Claude Code Mod — local, read-only workflow view.
  * All hooks pass through Claude's ordinary behavior; no tools are intercepted.
  * This version draws its own Pane and shows only data exposed by the Mods API.
@@ -9,6 +9,7 @@ const MAX_TOOLS = 12;
 let state = {
   open: false, startedAt: Date.now(), toolCount: 0, lastTool: "",
   tools: [], agents: [], usage: null, status: "idle", error: null, expandedAgents: {},
+  sharedPlans: [], selectedPlan: null, planData: null, expandedPhases: {},
 };
 
 function clean(text, max=85) {
@@ -54,6 +55,63 @@ function publish($, latestTool=null) {
     lastTool:latestTool,
   }).catch(()=>$.ui.invalidate("ui.render"));
 }
+async function loadPlans($) {
+  try {
+    state.sharedPlans = await listSharedWorkflows($);
+    if(state.selectedPlan){
+      state.planData = await loadSharedWorkflow($,state.selectedPlan);
+    }
+  }catch(err){
+    // The native Claude pane remains usable even when FastAPI is offline.
+    state.error="Plan compartido: "+clean(err?.message??err,100);
+  }
+  $.ui.invalidate("ui.render");
+}
+function phaseStatus(s) {
+  return ({pending:"○",running:"◌",completed:"✓",failed:"!",blocked:"⊘",
+           cancelled:"×",waiting:"◐"})[s]||"·";
+}
+function addWorkflowRows($,rows,line,Box,Text,Button) {
+  rows.push(line("── PLAN COMPARTIDO ──","cyan"));
+  if(!state.sharedPlans.length){
+    rows.push(line("No hay planes registrados en el monitor local","gray"));
+  }else{
+    for(const plan of state.sharedPlans.slice(0,8)){
+      const selected=plan.id===state.selectedPlan;
+      rows.push(Box({flexDirection:"row",children:[
+        Text({children:(selected?"▾ ":"▸ ")+clean(plan.title,46)}),
+        Button({label:selected?"Activo":"Ver",onPress:async()=>{
+          state.selectedPlan=selected?null:plan.id;
+          state.planData=state.selectedPlan
+            ?await loadSharedWorkflow($,state.selectedPlan):null;
+          $.ui.invalidate("ui.render");
+        }})
+      ]}));
+    }
+  }
+  if(!state.planData?.phases)return;
+  const phases=state.planData.phases;
+  const byParent=parent=>phases.filter(p=>(p.parent_id||null)===parent);
+  function drawPhase(p,depth=0) {
+    const children=byParent(p.id);
+    const expanded=!!state.expandedPhases[p.id];
+    const prefix=" ".repeat(Math.min(depth*2,8));
+    const text=prefix+phaseStatus(p.status)+" "+clean(p.title,55);
+    const person="  "+p.provider+(p.agent_id?" · "+clean(p.agent_id,30):"");
+    if(children.length){
+      rows.push(Box({flexDirection:"row",children:[
+        Text({children:text}),
+        Button({label:expanded?"−":"+",onPress:()=>{
+          state.expandedPhases[p.id]=!expanded;
+          $.ui.invalidate("ui.render");
+        }})
+      ]}));
+    }else rows.push(line(text));
+    rows.push(line(prefix+person,"gray"));
+    if(expanded)children.slice(0,50).forEach(x=>drawPhase(x,depth+1));
+  }
+  byParent(null).slice(0,50).forEach(p=>drawPhase(p));
+}
 function draw($, e) {
   const {Box,Text,Button}=$.ui.resolve(e);
   const line=(value,color)=>color==="gray"
@@ -71,7 +129,8 @@ function draw($, e) {
   } else {
     rows.push(line("Tokens: aún no disponibles","gray"));
   }
-  rows.push(line("── AGENTES ──","cyan"));
+  addWorkflowRows($,rows,line,Box,Text,Button);
+  rows.push(line("── AGENTES DE ESTA SESIÓN ──","cyan"));
   if(!state.agents.length)rows.push(line("Sin subagentes registrados","gray"));
   for(const a of state.agents.slice(0,10)){
     const glyph=a.status==="completed"?"✓":a.status==="running"?"◌":a.status==="failed"?"!":"·";
@@ -100,7 +159,7 @@ function draw($, e) {
   }
   if(state.error)rows.push(line("Diagnóstico: "+state.error,"yellow"));
   if(bridgeStatus().error)rows.push(line("Puente: "+bridgeStatus().error,"yellow"));
-  rows.push(Button({label:"Actualizar",onPress:async()=>{await capture($);publish($)}}));
+  rows.push(Button({label:"Actualizar",onPress:async()=>{await capture($);publish($);await loadPlans($)}}));
   rows.push(Button({label:"Cerrar panel",onPress:async()=>{state.open=false;await $.ui.close({id:PANE_ID})}}));
   return Box({flexDirection:"column",paddingX:1,children:rows});
 }
@@ -108,6 +167,7 @@ async function open($){
   state.open=true;
   await capture($);
   publish($);
+  await loadPlans($);
   const placement=await $.ui.open({id:PANE_ID,title:"Agent Workflow",focus:true});
   return placement;
 }
