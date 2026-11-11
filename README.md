@@ -307,3 +307,15 @@ La barra lateral muestra ahora únicamente **grupos de procesos CLI vivos** (Cod
 Esto reduce el ruido de sesiones antiguas y no elimina datos. **Limitación:** un proceso vivo no equivale necesariamente a una sesión iniciada manualmente por el usuario. Algunas herramientas lanzan procesos auxiliares y otras no exponen sus IDs. Para disponer de una lista exactamente igual a las sesiones que inicias personalmente será necesario registrar los lanzamientos o recibir IDs de sesión mediante hooks/SDK. No se infiere una identidad de sesión por coincidencia de horarios.
 
 Actualiza con `git pull` y recarga `Ctrl+F5`; es un cambio de interfaz y no requiere GitHub Actions.
+
+## Orchestrator details: coordinated agents (November 2026)
+
+When selecting a **Codex process** in the live process tree, the right-side *Agent Execution* detail now includes an **AGENTES COORDINADOS** section below its timeline. Each Claude branch associated with the Codex process appears as a compact card with PID, observed relationship, a last activity label when available, and two actions:
+
+- **Ver resumen / Contraer:** expand an inline summary without navigating away from the orchestrator.
+- **Abrir agente:** open that Claude's full process detail in the same right-hand panel, maintaining the user's explicit selection.
+- **Abrir workflow de la sesión** (when a session is verified): open its associated workflow with token and cost information.
+
+Process ancestry or a manually confirmed link identifies grouping only; it does **not** prove agent delegation or token attribution. No separate Claude costs are added to the Codex totals unless an attributable session is available. The display refreshes on topology changes without forcing selection to the latest active session.
+
+UI-only update: `git pull` and browser `Ctrl+F5` while the local FastAPI server serves the same working tree. GitHub Actions are not configured or run.
