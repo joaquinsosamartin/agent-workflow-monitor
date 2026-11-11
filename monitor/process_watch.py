@@ -88,6 +88,7 @@ class ProcessRegistry:
         self._processes: list[dict] = []
         self._errors: list[str] = []
         self._refreshing = False
+        self._parent_map: dict[int, int] = {}
 
     def snapshot(self) -> dict:
         """Never block HTTP requests on Windows process enumeration."""
@@ -102,17 +103,20 @@ class ProcessRegistry:
                 "processes": [dict(p) for p in self._processes],
                 "errors": list(self._errors),
                 "refreshing": self._refreshing,
+                "parent_map": dict(self._parent_map),
             }
 
     def _refresh_background(self):
         try:
-            processes, errors = self._collect()
+            processes, errors, parent_map = self._collect()
         except Exception as exc:
             processes = None
             errors = [type(exc).__name__]
+            parent_map = {}
         with self._lock:
             if processes is not None:
                 self._processes = processes
+                self._parent_map = parent_map
             self._errors = errors[:5]
             self._updated = time.monotonic()
             self._refreshing = False
@@ -120,10 +124,13 @@ class ProcessRegistry:
     def _collect(self):
         processes = []
         errors = []
+        parent_map = {}
         for process in psutil.process_iter(["pid", "ppid", "name", "cmdline", "create_time"]):
             try:
                 with process.oneshot():
                     info = process.info
+                    if isinstance(info.get("pid"),int) and isinstance(info.get("ppid"),int):
+                        parent_map[info["pid"]] = info["ppid"]
                     cmdline = info.get("cmdline") or []
                     provider = _provider(info.get("name") or "", cmdline)
                     if not provider:
@@ -142,7 +149,7 @@ class ProcessRegistry:
                 continue
             except Exception as exc:
                 errors.append(type(exc).__name__)
-        return processes, errors
+        return processes, errors, parent_map
 
     def classify(self, runs: list[dict], observer_files: list[dict]) -> dict:
         snap = self.snapshot()
@@ -215,8 +222,8 @@ class ProcessRegistry:
                     })
                     break
                 try:
-                    parent_pid = psutil.Process(parent_pid).ppid()
-                except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+                    parent_pid = snap.get("parent_map", {}).get(parent_pid)
+                except (TypeError, ValueError):
                     break
         snap["process_relationships"] = relations
         return snap
