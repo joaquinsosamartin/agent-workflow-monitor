@@ -50,7 +50,7 @@ class DelegationTests(unittest.TestCase):
         self.assertEqual(finished["status"],"completed")
         self.assertTrue(finish(self.store,"exec-1",DelegationFinish(exit_code=0,event_id="end-1"))["duplicate"])
         state=workflow_snapshot(self.store,"p1")
-        self.assertEqual(next(x for x in state["phases"] if x["id"]=="qa")["status"],"completed")
+        self.assertEqual(next(x for x in state["phases"] if x["id"]=="qa")["status"],"waiting")
         self.assertEqual(next(x for x in state["phases"] if x["id"]=="implementation")["provider"],"codex")
 
     def test_late_completion_cannot_overwrite_reassigned_phase(self):
