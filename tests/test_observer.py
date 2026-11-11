@@ -117,10 +117,10 @@ class ObserverTests(unittest.TestCase):
         path.parent.mkdir(parents=True,exist_ok=True)
         with path.open("w",encoding="utf-8") as stream:
             stream.write(json.dumps({"type":"session_meta","payload":{
-                "id":sid,"cwd":"C:/src/customer-api"}})+"\\n")
-            stream.write("{invalid json}\\n")
+                "id":sid,"cwd":"C:/src/customer-api"}})+"\n")
+            stream.write("{invalid json}\n")
             stream.write(json.dumps({"type":"event_msg","timestamp":"t1","payload":{
-                "type":"task_started"}})+"\\n")
+                "type":"task_started"}})+"\n")
         self.observer._scan_file("codex",path)
         rid=stable("run","codex",path.stem)
         self.assertIsNotNone(self.store.snapshot(rid))
