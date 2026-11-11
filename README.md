@@ -299,3 +299,11 @@ foreach ($url in @('/api/health','/api/dashboard','/api/dashboard','/api/topolog
 ```
 
 If `/api/health` is fast but dashboard returns 503, provide the error from the server terminal; this narrows the issue to the database/observer instead of the HTTP event loop. No GitHub Actions workflow is configured or triggered.
+
+## Vista predeterminada: solo ejecuciones abiertas
+
+La barra lateral muestra ahora únicamente **grupos de procesos CLI vivos** (Codex/Claude) como vista principal, con ramas contraídas por defecto. Cada grupo principal representa el proceso raíz observado y sus descendientes, no todos los archivos JSONL históricos. El historial de conversaciones SQLite continúa disponible, pero **contraído bajo «HISTORIAL DE SESIONES»** y no se selecciona automáticamente al abrir la página.
+
+Esto reduce el ruido de sesiones antiguas y no elimina datos. **Limitación:** un proceso vivo no equivale necesariamente a una sesión iniciada manualmente por el usuario. Algunas herramientas lanzan procesos auxiliares y otras no exponen sus IDs. Para disponer de una lista exactamente igual a las sesiones que inicias personalmente será necesario registrar los lanzamientos o recibir IDs de sesión mediante hooks/SDK. No se infiere una identidad de sesión por coincidencia de horarios.
+
+Actualiza con `git pull` y recarga `Ctrl+F5`; es un cambio de interfaz y no requiere GitHub Actions.
