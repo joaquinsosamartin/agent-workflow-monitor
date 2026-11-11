@@ -233,23 +233,33 @@ class SessionObserver:
 
     def scan_once(self):
         processed = 0
-        recent: dict[str, float] = {}
         for provider, path in self._files():
             self._scan_file(provider, path)
-            rid = stable("run", provider, self._session_id(provider, path))
-            try:
-                recent[rid] = max(recent.get(rid, 0), path.stat().st_mtime)
-            except OSError:
-                pass
             processed += 1
-        # Idle means no new transcript activity; it does not imply completion.
-        for rid, modified in recent.items():
-            if time.time() - modified < 120:
-                continue
+        # Reconcile ALL previously discovered sessions, including those older
+        # than the lookback window. Otherwise stale 'running' records persist.
+        # Activity-based classification is not proof an OS process is still alive.
+        known = {}
+        with self.store.lock:
+            rows = self.store.conn.execute(
+                "SELECT path,run_id FROM observer_files"
+            ).fetchall()
+        for record in rows:
+            try:
+                mtime = Path(record["path"]).stat().st_mtime
+            except OSError:
+                mtime = 0
+            rid = record["run_id"]
+            known[rid] = max(known.get(rid, 0), mtime)
+        now = time.time()
+        for rid, modified in known.items():
             snap = self.store.snapshot(rid)
-            if snap and snap["run"]["status"] == "running":
-                self._emit({"run_id":rid,"type":"run.status","status":"idle",
-                            "external_id":f"observer-idle:{rid}:{int(modified)}"})
+            if not snap or snap["run"]["status"] != "running":
+                continue
+            if now - modified >= 120:
+                self._emit({"run_id": rid, "type": "run.status",
+                            "status": "idle",
+                            "external_id": f"observer-idle:{rid}:{int(modified)}"})
         return processed
 
     def _process(self, provider, path, session_id, row):
