@@ -7,6 +7,7 @@ ancestry, tool names or timestamps. Commands/prompts are never persisted.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from hashlib import sha256
 from typing import Literal
 from pydantic import BaseModel, Field
 
@@ -85,7 +86,7 @@ def start(store, plan_id: str, phase_id: str, data: DelegationStart) -> dict:
                 agent_id=data.agent_id,
                 session_id=data.session_id,
                 status="running",
-                event_id="delegation:start:" + data.execution_id,
+                event_id="delegation:start:" + sha256(data.execution_id.encode("utf-8")).hexdigest(),
             ),
         )
         store.conn.execute("""
@@ -138,7 +139,7 @@ def finish(store, execution_id: str, data: DelegationFinish) -> dict:
             update_phase(
                 store, execution["plan_id"], execution["phase_id"],
                 PhaseUpdate(status=status,
-                            event_id="delegation:finish:" + execution_id),
+                            event_id="delegation:finish:" + sha256(execution_id.encode("utf-8")).hexdigest()),
             )
     return {
         "execution_id": execution_id,
