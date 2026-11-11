@@ -68,6 +68,7 @@ h1{font-size:27px;letter-spacing:-.7px;margin:15px 0 5px}.header{display:flex;al
 let key="",selected="",stream=null,snapshot=null,inactiveExpanded=false;
 let lastRunSignature="",lastSnapshotSignature="",refreshTimer=null,historyExpanded=false,refreshing=false;
 let treeSignature="",processTreeOpened=new Set(),selectedProcess=null;
+let detailSelection={type:"none",id:null},selectionVersion=0;
 let dashboardRequest=null,dashboardData=null,dashboardFetchedAt=0;
 async function getDashboard(force=false){
  if(!force&&dashboardData&&Date.now()-dashboardFetchedAt<8000)return dashboardData;
@@ -140,7 +141,8 @@ function stepView(node,index,nodes,usage){
  heading.onclick=()=>{if(open){opened.delete(node.id)}else{opened.add(node.id)}render(snapshot)};
  wrap.append(content);return wrap
 }
-function render(data){snapshot=data;const view=document.querySelector("#view");view.replaceChildren();const run=data.run,roots=data.nodes.filter(n=>!n.parent_id),tot=usageSum(data.usage);
+function render(data){if(detailSelection.type!=="session"||detailSelection.id!==data.run.id)return;
+ snapshot=data;const view=document.querySelector("#view");view.replaceChildren();const run=data.run,roots=data.nodes.filter(n=>!n.parent_id),tot=usageSum(data.usage);
  const header=el("div","header");txt(header,"span","eyebrow","AGENT EXECUTION · "+run.id.substring(0,12));txt(header,"span","badge",label(run.status));view.append(header);
  txt(view,"h1","",run.title);txt(view,"p","muted",(run.project||"Local")+" · Workflow de agentes");
  txt(view,"div","timestamp","Actualizado · "+dateTime(run.updated_at));
@@ -171,7 +173,13 @@ function sessionButton(r){
 }
 
 function showProcessDetails(p){
+ detailSelection={type:"process",id:p.pid};
+ selectionVersion++;
  selectedProcess=p.pid;
+ selected="";
+ if(stream){stream.close();stream=null}
+ if(refreshTimer){clearTimeout(refreshTimer);refreshTimer=null}
+ lastRunSignature="";
  const view=document.querySelector("#view");
  view.replaceChildren();
  txt(view,"div","eyebrow","PROCESO LOCAL · "+String(p.pid));
@@ -283,7 +291,7 @@ async function listRunsNoSelect(){
  const counts=processData.processes_by_provider||{};
  state.textContent="Codex: "+(counts.codex||0)+" procesos · Claude: "+(counts.claude||0)+" · "+processData.verified_sessions+" sesiones vinculadas";
  state.title="Los procesos sin identificador de sesión verificable no se asignan a una ejecución";
- const sig=JSON.stringify([runs.map(r=>[r.id,r.title,r.project,r.presence,r.updated_at,r.activity?.title,r.activity?.agent]),selected,inactiveExpanded]);
+ const sig=JSON.stringify([runs.map(r=>[r.id,r.title,r.project,r.presence,r.updated_at,r.activity?.title,r.activity?.agent]),detailSelection.type,selected,inactiveExpanded]);
  if(sig===lastRunSignature)return runs;
  lastRunSignature=sig;
  box.replaceChildren();
@@ -367,7 +375,7 @@ function eventName(item){
 }
 async function showHistory(id){
  const records=await get("/api/runs/"+encodeURIComponent(id)+"/history?limit=40");
- if(id!==selected)return;
+ if(id!==selected||detailSelection.type!=="session")return;
  const view=document.querySelector("#view");
  const area=el("section","activity");
  txt(area,"div","eyebrow","HISTORIAL DE ACCIONES");
@@ -385,17 +393,18 @@ async function showHistory(id){
  area.append(panel);view.append(area);
 }
 async function refresh(force=false){
- if(!selected||refreshing)return;
+ if(!selected||detailSelection.type!=="session"||refreshing)return;
  refreshing=true;
  try{
-  const id=selected, data=await get("/api/runs/"+encodeURIComponent(id));
-  if(selected!==id)return;
+  const id=selected, version=selectionVersion;
+  const data=await get("/api/runs/"+encodeURIComponent(id));
+  if(selected!==id||selectionVersion!==version||detailSelection.type!=="session")return;
   const sig=JSON.stringify(data);
   if(force||sig!==lastSnapshotSignature){
    lastSnapshotSignature=sig;
    const scroll=window.scrollY;
    render(data);
-   if(historyExpanded)await showHistory(id);
+   if(historyExpanded&&detailSelection.type==="session")await showHistory(id);
    window.scrollTo({top:scroll,behavior:"instant"});
   }
  }catch(e){console.error(e)}
@@ -411,21 +420,28 @@ function scheduleRefresh(){
 }
 async function listRuns(){
  const runs=await listRunsNoSelect();
- if(!selected&&runs.length)await select((runs.find(r=>r.presence==="active")||runs.find(r=>r.presence==="recent_unverified")||runs[0]).id);
+ if(detailSelection.type==="none"&&runs.length)await select((runs.find(r=>r.presence==="active")||runs.find(r=>r.presence==="recent_unverified")||runs[0]).id);
 }
 async function select(id){
- if(selected===id)return;
+ if(detailSelection.type==="session"&&selected===id)return;
+ detailSelection={type:"session",id};
+ selectionVersion++;
+ const version=selectionVersion;
+ selectedProcess=null;
  selected=id;
  if(stream)stream.close();
  if(refreshTimer){clearTimeout(refreshTimer);refreshTimer=null}
  opened.clear();closed.clear();historyExpanded=false;
  lastSnapshotSignature="";lastRunSignature="";
  const runs=(await getDashboard()).runs;
+ if(selectionVersion!==version||detailSelection.type!=="session")return;
  if(runs.find(r=>r.id===id&&r.presence==="inactive"))inactiveExpanded=true;
  await refresh(true);
+ if(selectionVersion!==version||detailSelection.type!=="session")return;
  await listRunsNoSelect();
+ if(selectionVersion!==version||detailSelection.type!=="session")return;
  stream=new EventSource("/api/runs/"+encodeURIComponent(id)+"/events");
- stream.addEventListener("update",scheduleRefresh);
+ stream.addEventListener("update",()=>{if(selectionVersion===version&&detailSelection.type==="session")scheduleRefresh()});
 }
 setInterval(async()=>{try{await Promise.all([listRunsNoSelect(),refreshProcessTree()])}catch(e){console.warn(e)}},10000);
 document.querySelector("#demo").onclick=async()=>{try{const r=await post("/api/demo",{});await select(r.id)}catch(e){alert(e.message)}};
