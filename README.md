@@ -155,3 +155,13 @@ Test the observer with synthetic transcript files:
 \`\`\`powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 \`\`\`
+
+## Session and agent titles, active/inactive groups, timestamps
+
+The sidebar shows **active sessions first**, highlighted on the left in green, followed by a collapsible inactive group. Each session displays its task title, project, responsible agent, most recently observed operation and update timestamp. Steps/substeps and the activity history also show local date and time (day/month/year, hour:minute). The activity history includes the 40 most recent events.
+
+Session titles are derived from the **first user instruction** in a Claude or Codex transcript, shortened to 105 characters, or from a neutral fallback if unavailable. Claude delegated Task/Agent tool descriptions are displayed as agent operations; the detailed delegated prompt is not retained. This feature stores a short fragment of the user's instruction in local SQLite, unlike the previous metadata-only observer. Do not monitor sensitive projects unless this local retention is acceptable. No content leaves the computer via the monitor.
+
+Session inactivity is inferred from transcript modification time. An inactive session may still have an open process or be waiting for human input.
+
+For changes to appear after `git pull`, restart the FastAPI process and refresh the browser (Ctrl+F5). Previous discovered transcripts are processed incrementally, so titles of **already ingested** sessions may retain fallback values; newly created sessions acquire descriptive titles automatically.
