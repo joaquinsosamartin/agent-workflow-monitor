@@ -162,6 +162,36 @@ async function listRunsNoSelect(){
   recent.forEach(r=>section.append(sessionButton(r)));
   box.append(section);
  }
+ const unlinked=(processData.unmatched_processes||[]).filter(p=>p.provider==="codex"||p.provider==="claude");
+ if(unlinked.length){
+  const section=el("section","session-group");
+  const head=el("div","session-header");
+  txt(head,"span","","◇ PROCESOS CLI DETECTADOS · SIN VINCULAR");
+  txt(head,"span","session-count",String(unlinked.length));
+  section.append(head);
+  const note=el("p","muted","Procesos Windows vivos. No equivale a sesiones o tareas activas.");
+  note.style.fontSize="11px";section.append(note);
+  const relations=processData.process_relationships||[];
+  const ids=new Set(unlinked.map(p=>p.pid));
+  const subordinate=new Set(relations.filter(r=>ids.has(r.parent_pid)&&ids.has(r.child_pid)).map(r=>r.child_pid));
+  // Show Codex first; group Claude children under the observed parent process.
+  const top=unlinked.filter(p=>!subordinate.has(p.pid)).sort((a,b)=>
+    (a.provider==="codex"?0:1)-(b.provider==="codex"?0:1) ||
+    (new Date(b.started_at||0)-new Date(a.started_at||0)));
+  for(const p of top.slice(0,20)){
+   const card=el("div","process-run");
+   if(p.provider==="codex")card.style.borderLeftColor="#68aafd";
+   txt(card,"div","run-title",(p.provider==="codex"?"Codex":"Claude")+" · PID "+p.pid);
+   const children=relations.filter(r=>r.parent_pid===p.pid&&ids.has(r.child_pid));
+   const desc=children.length
+     ?children.length+" subprocesos detectados (relación de procesos, no agentes confirmados)"
+     :"Proceso sin registro de sesión correlacionado";
+   txt(card,"div","process-hint",desc);
+   txt(card,"div","timestamp",p.started_at?"Iniciado · "+dateTime(p.started_at):"");
+   section.append(card);
+  }
+  box.append(section);
+ }
  const inactiveSection=el("section","session-group");
  const toggle=el("button","session-header");
  toggle.type="button";toggle.setAttribute("aria-expanded",String(inactiveExpanded));
@@ -175,29 +205,6 @@ async function listRunsNoSelect(){
   else txt(inactiveSection,"p","muted","Sin sesiones inactivas");
  }
  box.append(inactiveSection);
- const unlinked=(processData.unmatched_processes||[]).filter(p=>p.provider==="codex"||p.provider==="claude");
- if(unlinked.length){
-  const processSection=el("section","session-group");
-  const head=el("div","session-header");
-  txt(head,"span","","◇ PROCESOS SIN SESIÓN VINCULADA");
-  txt(head,"span","session-count",String(unlinked.length));
-  processSection.append(head);
-  const hint=el("p","muted","Procesos encontrados en Windows, pero todavía sin un registro de sesión correlacionado.");
-  hint.style.fontSize="11px";processSection.append(hint);
-  const relations=processData.process_relationships||[];
-  for(const p of unlinked.slice(0,30)){
-   const row=el("div","process-run");
-   txt(row,"div","run-title",(p.provider==="codex"?"Codex":"Claude")+" · PID "+p.pid);
-   const children=relations.filter(r=>r.parent_pid===p.pid);
-   const summary=children.length
-     ?children.length+" proceso(s) hijo(s): "+children.map(c=>c.child_provider).join(", ")
-     :"Sin relación de orquestación verificable";
-   txt(row,"div","process-hint",summary);
-   txt(row,"div","timestamp",p.started_at?"Iniciado · "+dateTime(p.started_at):"");
-   processSection.append(row);
-  }
-  box.append(processSection);
- }
  return runs;
 }
 function eventName(item){
