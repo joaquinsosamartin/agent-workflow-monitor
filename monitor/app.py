@@ -230,6 +230,7 @@ from pydantic import RootModel
 @app.post('/api/integrations/claude/events',dependencies=[Depends(authorize)])
 async def claude_mod_event(event:ModEvent):
     perf.count("mod.events_received")
+    perf.report_cumulative("mod.events_dropped", event.session_id, event.dropped_events)
     if event.hook_latency_ms is not None:
         perf.observe("mod.hook_overhead_ms", event.hook_latency_ms)
     result = await bounded(ingest_mod_event, store, event, operation='Claude Mod ingest')
@@ -246,6 +247,7 @@ def ingest_mod_batch(batch):
 async def claude_mod_batch(batch:ModBatch):
     perf.count("mod.events_received", len(batch.root))
     for event in batch.root:
+        perf.report_cumulative("mod.events_dropped", event.session_id, event.dropped_events)
         if event.hook_latency_ms is not None:
             perf.observe("mod.hook_overhead_ms", event.hook_latency_ms)
     result = await bounded(ingest_mod_batch,batch,operation="Claude Mod batch")
