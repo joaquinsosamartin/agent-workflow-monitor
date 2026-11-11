@@ -69,7 +69,7 @@ function draw($, e) {
   }
   if(state.error)rows.push(line("Diagnóstico: "+state.error,"yellow"));
   rows.push(Button({label:"Actualizar",onPress:()=>capture($)}));
-  rows.push(Button({label:"Cerrar panel",onPress:async()=>{state.open=false;await $.ui.close(PANE_ID)}}));
+  rows.push(Button({label:"Cerrar panel",onPress:async()=>{state.open=false;await $.ui.close({id:PANE_ID})}}));
   return Box({flexDirection:"column",paddingX:1,children:rows});
 }
 async function open($){
@@ -117,14 +117,9 @@ export function register(on){
     if(state.open)$.ui.invalidate("ui.render");
     return next(e);
   });
-  on("ui.render",{component:"Pane"},($,e,next)=>{
-    // Pane ID is set by ui.open. Surface-specific prop names may change;
-    // let all unrelated panes pass through untouched.
-    if(e.props?.id!==PANE_ID&&e.props?.paneId!==PANE_ID)return next(e);
-    return draw($,e);
-  });
-  on("ui.close",($,e,next)=>{
-    if(e.id===PANE_ID)state.open=false;
+  on("ui.render",{component:"Pane",requestId:PANE_ID},($,e,next)=>draw($,e));
+  on("ui.close",{id:PANE_ID},($,e,next)=>{
+    state.open=false;
     return next(e);
   });
 }
