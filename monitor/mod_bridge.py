@@ -31,6 +31,7 @@ class ModEvent(BaseModel):
     # excluded from the token_usage table.
     context_tokens: int | None = Field(default=None,ge=0)
     context_window: int | None = Field(default=None,ge=0)
+    hook_latency_ms: float | None = Field(default=None, ge=0, le=60000)
 
 
 def ingest(store: Store, event: ModEvent) -> dict:
