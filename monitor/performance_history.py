@@ -69,6 +69,7 @@ class PerformanceHistory:
                 hook_p95_ms REAL,
                 mod_events_received INTEGER NOT NULL,
                 mod_events_written INTEGER NOT NULL,
+                mod_events_dropped INTEGER NOT NULL DEFAULT 0,
                 api_timeouts INTEGER NOT NULL
             )
         """)
@@ -76,6 +77,10 @@ class PerformanceHistory:
             CREATE INDEX IF NOT EXISTS idx_perf_samples_time
             ON performance_samples(timestamp)
         """)
+        # Add counters safely when upgrading an older performance history DB.
+        columns={row[1] for row in conn.execute("PRAGMA table_info(performance_samples)")}
+        if "mod_events_dropped" not in columns:
+            conn.execute("ALTER TABLE performance_samples ADD COLUMN mod_events_dropped INTEGER NOT NULL DEFAULT 0")
         conn.commit()
         self._initialized=True
         return conn
@@ -109,6 +114,7 @@ class PerformanceHistory:
             "hook_p95_ms":p95("mod.hook_overhead_ms"),
             "mod_events_received":int(counters.get("mod.events_received",0)),
             "mod_events_written":int(counters.get("mod.events_written",0)),
+            "mod_events_dropped":int(counters.get("mod.events_dropped",0)),
             "api_timeouts":int(counters.get("api.timeout",0)),
         }
         with self._lock:
