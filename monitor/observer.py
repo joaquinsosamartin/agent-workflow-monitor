@@ -305,9 +305,10 @@ class SessionObserver:
         # than the lookback window. Otherwise stale 'running' records persist.
         # Activity-based classification is not proof an OS process is still alive.
         known = {}
+        providers = {}
         with self.store.lock:
             rows = self.store.conn.execute(
-                "SELECT path,run_id FROM observer_files"
+                "SELECT path,run_id,provider FROM observer_files"
             ).fetchall()
         for record in rows:
             try:
@@ -316,12 +317,22 @@ class SessionObserver:
                 mtime = 0
             rid = record["run_id"]
             known[rid] = max(known.get(rid, 0), mtime)
+            providers[rid] = record["provider"]
         now = time.time()
         for rid, modified in known.items():
             snap = self.store.snapshot(rid)
-            if not snap or snap["run"]["status"] != "running":
+            if not snap:
                 continue
-            if now - modified >= 120:
+            previous = snap["run"]["status"]
+            recent = now - modified < 120
+            if providers.get(rid) == "codex" and previous in ("completed", "failed"):
+                # Repair Codex runs that older releases incorrectly marked
+                # completed when a single conversation turn finished.
+                corrected = "running" if recent else "idle"
+                self._emit({"run_id": rid, "type": "run.status",
+                            "status": corrected,
+                            "external_id": f"codex-lifecycle-repair:{rid}:{int(modified)}"})
+            elif previous == "running" and not recent:
                 self._emit({"run_id": rid, "type": "run.status",
                             "status": "idle",
                             "external_id": f"observer-idle:{rid}:{int(modified)}"})
