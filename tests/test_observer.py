@@ -68,7 +68,7 @@ class ObserverTests(unittest.TestCase):
         self.assertTrue(any(n["title"]=="Delegar · Revisar seguridad de los endpoints" for n in snap["nodes"]))
         self.assertNotIn("Never store this delegated prompt",str(self.store.event_list(rid)))
         self.assertTrue(any(r["id"]==rid and r["activity"]["title"].startswith("Delegar") for r in self.store.run_list()))
-        self.assertEqual(short_title("Abre  varios\\narchivos"),"Abre varios archivos")
+        self.assertEqual(short_title("Abre  varios archivos"),"Abre varios archivos")
 
     def test_recent_events_are_newest_first_with_timestamps(self):
         rid=self.store.add_run("Timeline")
