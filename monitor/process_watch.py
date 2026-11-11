@@ -24,19 +24,22 @@ CODEX_HINTS = ("codex", "@openai/codex")
 
 def _provider(name: str, cmdline: list[str]) -> str | None:
     """Identify the binary/entrypoint only, never search user prompt text."""
-    binary = Path(name or "").stem.lower()
+    # pathlib.Path on Linux does not recognize Windows backslashes in paths;
+    # normalize both Win32 and POSIX executable naming conventions.
+    binary = str(name or "").replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if binary.endswith(".exe"): binary = binary[:-4]
     if binary in ("claude", "claude-code"):
         return "claude"
     if binary in ("codex", "codex-cli"):
         return "codex"
     # Node/npm wrappers: inspect only the launch script and first command,
     # not arbitrary prompt arguments.
-    launch = [Path(str(arg)).name.lower() for arg in cmdline[:3]]
-    full_launch = [str(arg).lower().replace("\\", "/") for arg in cmdline[:3]]
+    launch = [str(arg).replace("\\", "/").rsplit("/", 1)[-1].lower() for arg in cmdline[:4]]
+    full_launch = [str(arg).lower().replace("\\", "/") for arg in cmdline[:4]]
     if binary in ("node", "node.exe", "bun", "bun.exe", "npm", "npx", "cmd", "powershell", "pwsh"):
-        if any("anthropic-ai/claude-code" in x for x in full_launch) or "claude" in launch[1:]:
+        if any("anthropic-ai/claude-code" in x for x in full_launch) or any(x in ("claude", "claude.exe", "claude.cmd") for x in launch[1:]):
             return "claude"
-        if any("@openai/codex" in x for x in full_launch) or "codex" in launch[1:]:
+        if any("@openai/codex" in x for x in full_launch) or any(x in ("codex", "codex.exe", "codex.cmd") for x in launch[1:]):
             return "codex"
     return None
 
@@ -98,7 +101,7 @@ class ProcessRegistry:
     def _refresh(self):
         processes = []
         errors = []
-        for process in psutil.process_iter(["pid", "name", "cmdline", "create_time"]):
+        for process in psutil.process_iter(["pid", "ppid", "name", "cmdline", "create_time"]):
             try:
                 with process.oneshot():
                     info = process.info
@@ -109,6 +112,7 @@ class ProcessRegistry:
                     session_id = _resume_id(provider, cmdline)
                     processes.append({
                         "pid": info["pid"],
+                        "ppid": info.get("ppid"),
                         "provider": provider,
                         "session_id": session_id,
                         "started_at": datetime.fromtimestamp(
@@ -168,4 +172,16 @@ class ProcessRegistry:
             p for p in snap["processes"] if p["pid"] not in assigned
         ]
         snap["verified_sessions"] = sum(r["process_verified"] for r in runs)
+        snap["processes_by_provider"] = {
+            name: sum(p["provider"] == name for p in snap["processes"])
+            for name in ("codex", "claude")
+        }
+        # This is a process topology hint, not verified task orchestration.
+        by_pid = {p["pid"]: p for p in snap["processes"]}
+        snap["process_relationships"] = [
+            {"parent_pid": p["ppid"], "child_pid": p["pid"],
+             "parent_provider": by_pid[p["ppid"]]["provider"],
+             "child_provider": p["provider"], "relation": "process_parent_only"}
+            for p in snap["processes"] if p.get("ppid") in by_pid
+        ]
         return snap
