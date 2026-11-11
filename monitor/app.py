@@ -199,6 +199,37 @@ from .mod_bridge import ModEvent, ingest as ingest_mod_event
 async def claude_mod_event(event:ModEvent):
     return await bounded(ingest_mod_event, store, event, operation='Claude Mod ingest')
 
+from .workflow_plan import (
+    PlanInput, PhaseUpdate, initialize as initialize_plans,
+    upsert_plan, update_phase, snapshot as plan_snapshot, plans as list_plans
+)
+initialize_plans(store)
+
+@app.post('/api/workflows',dependencies=[Depends(authorize)])
+async def save_workflow(data:PlanInput):
+    try:
+        return await bounded(upsert_plan,store,data,operation="workflow upsert")
+    except ValueError as exc:
+        raise HTTPException(status_code=400,detail=str(exc))
+
+@app.get('/api/workflows')
+async def get_workflows():
+    return await bounded(list_plans,store,operation="workflow list")
+
+@app.get('/api/workflows/{plan_id}')
+async def get_workflow(plan_id:str):
+    result=await bounded(plan_snapshot,store,plan_id,operation="workflow snapshot")
+    if not result:
+        raise HTTPException(status_code=404,detail="Workflow not found")
+    return result
+
+@app.post('/api/workflows/{plan_id}/phases/{phase_id}',dependencies=[Depends(authorize)])
+async def set_workflow_phase(plan_id:str, phase_id:str, data:PhaseUpdate):
+    try:
+        return await bounded(update_phase,store,plan_id,phase_id,data,operation="phase update")
+    except KeyError as exc:
+        raise HTTPException(status_code=404,detail=str(exc))
+
 @app.get('/api/dashboard')
 async def dashboard():
     return await bounded(build_dashboard, operation="dashboard")
