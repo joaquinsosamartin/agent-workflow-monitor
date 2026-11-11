@@ -1,5 +1,7 @@
 import asyncio
 import os
+import logging
+import time
 from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
@@ -76,7 +78,15 @@ def authorize(x_monitor_key: str|None=Header(default=None)):
     if not x_monitor_key or not hmac.compare_digest(x_monitor_key,KEY):
         raise HTTPException(401,'Invalid monitor key')
 
-app=FastAPI(title='Agent Workflow Monitor',version='0.3.1')
+app=FastAPI(title='Agent Workflow Monitor',version='0.3.2')
+log = logging.getLogger(__name__)
+
+async def bounded(call, *args, operation='database', timeout=5.0):
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(call, *args), timeout=timeout)
+    except asyncio.TimeoutError:
+        log.error("Timed out waiting for %s after %.1fs",operation,timeout)
+        raise HTTPException(status_code=503,detail=f"{operation} timed out")
 
 # Local transcript observation is read-only and requires no provider hooks.
 # Disable with AGENT_MONITOR_OBSERVE=0.
@@ -147,13 +157,13 @@ def observer_scan():
 async def health():
     # No SQLite or psutil calls: distinguishes event-loop responsiveness
     # from slow database/process-scanning endpoints.
-    return {'status':'ok','version':'0.3.1'}
+    return {'status':'ok','version':'0.3.2'}
 
 @app.get('/')
 def index(): return FileResponse(STATIC/'index.html')
 
 @app.get('/api/bootstrap')
-def bootstrap(): return {'key':KEY,'version':'0.3.1'}
+def bootstrap(): return {'key':KEY,'version':'0.3.2'}
 
 def classified_runs():
     runs = store.run_list()
@@ -164,9 +174,7 @@ def classified_runs():
     process_state = process_registry.classify(runs, observer_files)
     return runs, process_state
 
-@app.get('/api/dashboard')
-def dashboard():
-    """One coherent snapshot for the sidebar instead of three costly requests."""
+def build_dashboard():
     from .topology import build_process_tree
     runs, processes = classified_runs()
     manual = current_manual_links(processes)
@@ -184,6 +192,10 @@ def dashboard():
         ),
         "checked_at": processes["checked_at"],
     }
+
+@app.get('/api/dashboard')
+async def dashboard():
+    return await bounded(build_dashboard, operation="dashboard")
 
 @app.get('/api/runs')
 def get_runs():
@@ -279,16 +291,12 @@ def delete_process_link(child_pid:int):
     return {"removed":True}
 
 @app.get('/api/topology')
-def get_topology():
-    from .topology import build_process_tree
-    runs, processes = classified_runs()
-    manual = current_manual_links(processes)
+async def get_topology():
+    dashboard_data=await bounded(build_dashboard,operation="topology")
     return {
-        **build_process_tree(processes['processes'],
-                             processes['process_relationships'], runs, manual),
-        'checked_at': processes['checked_at'],
-        'manual_links': manual,
-        'note': 'OS process ancestry is observational; user-confirmed links are explicit, not inferred.'
+        **dashboard_data['topology'],
+        'checked_at':dashboard_data['checked_at'],
+        'note':'Process ancestry is observational; manual links are user-confirmed.'
     }
 
 @app.post('/api/runs',dependencies=[Depends(authorize)])
