@@ -38,6 +38,23 @@ class WorkflowPlanTests(unittest.TestCase):
         self.assertEqual(main["status"],"running")
         self.assertEqual(len(result["phases"]),2)
 
+    def test_reimport_does_not_undo_provider_handoff(self):
+        original=PlanInput(id="reimport",title="Plan",phases=[
+            {"id":"phase","title":"Implementación","provider":"codex","agent_id":"dev"}
+        ])
+        upsert_plan(self.store,original)
+        update_phase(self.store,"reimport","phase",PhaseUpdate(
+            provider="claude",agent_id="reviewer",session_id="c-session",
+            status="running",event_id="handoff"))
+        upsert_plan(self.store,original)
+        result=snapshot(self.store,"reimport")
+        self.assertEqual(result["phases"][0]["provider"],"claude")
+        self.assertEqual(result["phases"][0]["agent_id"],"reviewer")
+        self.assertEqual(result["phases"][0]["session_id"],"c-session")
+        self.assertEqual(len(result["history"]),1)
+        self.assertEqual(result["history"][0]["previous_provider"],"codex")
+        self.assertEqual(result["history"][0]["next_provider"],"claude")
+
     def test_idempotent_phase_event(self):
         upsert_plan(self.store,PlanInput(id="plan",title="Test",phases=[
             {"id":"phase","title":"Step","provider":"codex"}]))
