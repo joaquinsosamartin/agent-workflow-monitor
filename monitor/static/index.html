@@ -6,7 +6,7 @@
 :root{color-scheme:dark;font:14px/1.5 Inter,system-ui,Segoe UI,sans-serif;--bg:#0b1422;--panel:#17263b;--border:#2b405b;--text:#e9f2ff;--muted:#9bb2d0;--green:#59d8ad;--blue:#8ab8ff}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 75% 0%,#182f4d,var(--bg) 55%);color:var(--text)}
 .layout{max-width:1200px;margin:auto;display:grid;grid-template-columns:290px minmax(300px,1fr);min-height:100vh}
-aside{border-right:1px solid var(--border);padding:27px 18px}main{padding:32px 40px;max-width:850px;width:100%;margin:auto}
+aside{border-right:1px solid var(--border);padding:27px 18px}main{padding:32px 40px;max-width:850px;width:100%;margin:0 auto;align-self:start;min-height:0}
 .brand{font-size:17px;font-weight:750;margin-bottom:33px}.brand span{color:var(--blue)}
 small,.muted{color:var(--muted)}.eyebrow{color:#86a5d0;letter-spacing:2px;font-size:11px;font-weight:700}
 button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid var(--blue)}
@@ -174,27 +174,68 @@ function sessionButton(r){
 }
 
 function showProcessDetails(p){
+ // A manually grouped Claude is still a process, not necessarily a matched
+ // transcript session. Render the same card layout without inventing usage.
  detailSelection={type:"process",id:p.pid};
  selectionVersion++;
  refreshRequestId++;
  selectedProcess=p.pid;
  selected="";
+ snapshot=null;
  if(stream){stream.close();stream=null}
  if(refreshTimer){clearTimeout(refreshTimer);refreshTimer=null}
- lastRunSignature="";
- treeSignature="";
+ opened.clear();closed.clear();historyExpanded=false;
+ lastRunSignature="";lastSnapshotSignature="";treeSignature="";
  const view=document.querySelector("#view");
  view.replaceChildren();
- txt(view,"div","eyebrow","PROCESO LOCAL · "+String(p.pid));
- txt(view,"h1","",(p.provider==="codex"?"Codex":"Claude")+" · PID "+p.pid);
- txt(view,"p","muted","Proceso detectado en Windows. Sesión no correlacionada.");
+ const provider=p.provider==="codex"?"Codex":"Claude";
+ const linked=!!p.session;
+ const header=el("div","header");
+ txt(header,"span","eyebrow","AGENT EXECUTION · PID "+p.pid);
+ txt(header,"span","badge",linked?"Sesión vinculada":"Proceso activo");
+ view.append(header);
+ txt(view,"h1","",linked?p.session.title:provider+" · PID "+p.pid);
+ txt(view,"p","muted",linked?(p.session.project||"Local")+" · Workflow de agentes":provider+" · Proceso detectado localmente");
  txt(view,"div","timestamp","Iniciado · "+dateTime(p.started_at));
- txt(view,"p","tree-hint","La jerarquía refleja relaciones entre procesos del sistema operativo, no demuestra la delegación de tareas ni permite atribuir tokens a este PID.");
- if(p.session){
-   const btn=el("button","btn","Abrir sesión vinculada");
+ const cards=el("div","cards");
+ const metrics=[
+   ["—","Coste USD · sin datos atribuidos"],
+   ["—","Tokens · sin sesión atribuida"],
+   ["—","Pasos · sin plan disponible"]
+ ];
+ for(const [value,caption] of metrics){
+   const card=el("div","card");
+   txt(card,"b","",value);
+   txt(card,"small","",caption);
+   cards.append(card);
+ }
+ view.append(cards);
+ txt(view,"div","eyebrow","EXECUTION TIMELINE");
+ const timeline=el("div","timeline");
+ const step=el("section","step running");
+ const circle=el("div","circle","◌");
+ const content=el("div");
+ txt(content,"div","heading",provider+" · PID "+p.pid);
+ const state=el("div","meta");
+ txt(state,"span",p.provider==="claude"?"active":"good",provider);
+ txt(state,"span","","Proceso Windows detectado");
+ content.append(state);
+ txt(content,"div","timestamp step-time","Inicio · "+dateTime(p.started_at));
+ const descendants=(p.children||[]).length;
+ if(descendants)txt(content,"div","tree-hint",descendants+" subprocesos vinculados en el árbol");
+ if(p.relation)txt(content,"div","tree-hint",
+   p.relation==="user_confirmed"?"Vinculación manual con el orquestador":
+   p.relation==="process_parent"?"Relación padre-hijo observada":"Relación de procesos descendientes");
+ step.append(circle,content);timeline.append(step);view.append(timeline);
+ if(linked){
+   const btn=el("button","btn","Abrir workflow y consumo de la sesión vinculada");
    btn.onclick=()=>select(p.session.id);
    view.append(btn);
+ }else{
+   txt(view,"p","tree-hint","No hay una sesión JSONL correlacionada con este PID. Los tokens, costes y subpasos no se pueden atribuir de forma fiable.");
  }
+ txt(view,"div","footer","◉ SQLite local · Procesos vivos · Solo métricas verificadas");
+ // Keep the selected process visually highlighted without changing detail.
  refreshProcessTree().catch(console.error);
 }
 function renderProcessTree(payload){
@@ -229,7 +270,7 @@ function renderProcessTree(payload){
     renderProcessTree(payload)
    };
    const name=el("button","tree-name",(p.provider==="codex"?"⌘ Codex":"✧ Claude")+" · PID "+p.pid);
-   name.onclick=()=>p.session?select(p.session.id):showProcessDetails(p);
+   name.onclick=()=>showProcessDetails(p);
    top.append(toggle,name);row.append(top);
    const meta=el("div","tree-meta");
    if(p.session){
