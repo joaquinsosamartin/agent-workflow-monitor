@@ -174,15 +174,25 @@ class SessionObserver:
             log.warning("Observer event rejected: %s", ex)
 
     def _ensure_run(self, provider, session_id, cwd):
+        import ntpath
         rid = stable("run", provider, session_id)
-        if self.store.snapshot(rid) is None:
-            project = Path(cwd).name if cwd else "Unknown project"
+        # ntpath handles Windows paths even when tests run on Linux.
+        project = ntpath.basename(str(cwd).rstrip("/\\\\") ) if cwd else "Unknown project"
+        if not project:
+            project = "Unknown project"
+        current = self.store.snapshot(rid)
+        if current is None:
             try:
                 self.store.add_run(f"{provider.title()} · {project}", project, rid)
             except Exception:
-                # Another observer may have inserted it in the meantime.
                 if self.store.snapshot(rid) is None:
                     raise
+        elif project != "Unknown project" and current["run"]["project"] == "Unknown project":
+            with self.store.lock, self.store.conn:
+                self.store.conn.execute(
+                    "UPDATE runs SET project=?, title=CASE WHEN title=? THEN ? ELSE title END WHERE id=?",
+                    (project, f"{provider.title()} · Unknown project",
+                     f"{provider.title()} · {project}", rid))
         return rid
 
     def _ensure_node(self, rid, identity, title, agent, provider, parent=None, position=0):
