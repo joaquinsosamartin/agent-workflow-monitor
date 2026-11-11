@@ -12,6 +12,16 @@ small,.muted{color:var(--muted)}.eyebrow{color:#86a5d0;letter-spacing:2px;font-s
 button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid var(--blue)}
 .run{width:100%;text-align:left;display:block;background:transparent;border:1px solid transparent;padding:13px;margin:8px 0;color:inherit;border-radius:12px}
 .run.selected{border-color:#4a6990;background:#1d2e47}.run small{display:block;margin-top:5px}
+.run.active-run{border-left:4px solid var(--green);background:#142a34;padding-left:10px;box-shadow:inset 0 0 20px rgba(89,216,173,.035)}
+.run.active-run.selected{background:#1c3945;border-color:#477e79}
+.run.active-run .run-state{color:var(--green)}.run-state{display:inline-block;font-size:11px;color:var(--muted);margin-top:6px}
+.run-title{font-size:13px;font-weight:650}.session-group{margin:22px 0 10px}
+.session-header{width:100%;display:flex;justify-content:space-between;align-items:center;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--muted);padding:8px 3px;text-align:left;font-size:11px;font-weight:750;letter-spacing:1px}
+.session-count{font-size:11px;background:#263d57;color:#c4d7f0;border-radius:20px;padding:2px 7px;letter-spacing:0;margin-left:6px}
+.timestamp{color:#829cba;font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}.step-time{margin-top:5px}
+.activity{margin-top:26px}.activity-list{border:1px solid var(--border);background:#142238;border-radius:13px;margin-top:12px;padding:5px 14px}
+.activity-item{border-bottom:1px solid #283c55;padding:11px 0;display:flex;justify-content:space-between;gap:14px;font-size:12px}.activity-item:last-child{border-bottom:0}
+.activity-item .timestamp{display:block;margin-top:2px}.activity-item .name{color:#d5e5f8}
 .btn{border:1px solid #456996;border-radius:10px;background:#23426b;color:#eef5ff;padding:11px 15px;margin-top:15px}
 h1{font-size:27px;letter-spacing:-.7px;margin:15px 0 5px}.header{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .badge{border:1px solid #426b93;color:#9cc6ff;border-radius:30px;padding:5px 11px;font-size:11px}
@@ -35,10 +45,15 @@ h1{font-size:27px;letter-spacing:-.7px;margin:15px 0 5px}.header{display:flex;al
 <button class="btn" id="demo">＋ Crear ejecución de demostración</button><p class="muted">SQLite local · SSE · Sin cloud</p>
 </aside><main id="view"><div class="empty">Selecciona una ejecución o crea una demostración.</div></main></div>
 <script>
-let key="",selected="",stream=null,snapshot=null;
+let key="",selected="",stream=null,snapshot=null,inactiveExpanded=false;
 const opened=new Set(),closed=new Set();
 const el=(tag,cls,text)=>{const x=document.createElement(tag);if(cls)x.className=cls;if(text!==undefined)x.textContent=text;return x};
 const money=x=>x==null?"—":"$"+Number(x).toFixed(Number(x)<1?4:2);
+const dateTime=value=>{
+ if(!value)return "—";
+ const d=new Date(value);
+ return Number.isNaN(d.getTime())?"—":new Intl.DateTimeFormat("es-ES",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:false}).format(d);
+};
 const compact=x=>x>=1000000?(x/1000000).toFixed(2)+"M":x>=1000?(x/1000).toFixed(1)+"K":String(x);
 const label=s=>({pending:"Pendiente",running:"En ejecución",completed:"Completado",failed:"Error",blocked:"Bloqueado",cancelled:"Cancelado",idle:"Inactiva"}[s]||s);
 const post=async(path,data)=>{const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json","X-Monitor-Key":key},body:JSON.stringify(data)});if(!r.ok)throw Error(await r.text());return r.json()};
@@ -52,6 +67,7 @@ function childRow(node,nodes,usage,depth=0){
  txt(left,"span",status==="completed"?"good":status==="running"?"active":"muted",
      (status==="completed"?"✓ ":status==="running"?"◌ ":status==="failed"?"! ":"○ ")+node.title);
  if(node.agent)txt(left,"div","muted",node.agent+" · "+label(status));
+ txt(left,"div","timestamp step-time",dateTime(node.updated_at));
  row.append(left,el("span","",compact(u.tokens)+" · "+money(u.cost)));
  const holder=el("div");holder.append(row);
  const children=nodes.filter(n=>n.parent_id===node.id);
@@ -72,6 +88,7 @@ function stepView(node,index,nodes,usage){
  const meta=el("div","meta"),tot=cumulative(node,nodes,usage);
  txt(meta,"span",node.provider==="claude"?"active":"good",(node.provider==="claude"?"✧ ":"⌘ ")+(node.agent||"Sin asignar"));
  txt(meta,"span","",label(node.status));txt(meta,"span","",compact(tot.tokens)+" tokens · "+money(tot.cost)+(tot.unknown?"*":""));content.append(meta);
+ txt(content,"div","timestamp step-time","Última acción · "+dateTime(node.updated_at));
  if(open&&children.length){const sub=el("div","children");children.slice(0,100).forEach(child=>sub.append(childRow(child,nodes,usage)));content.append(sub)}
  heading.onclick=()=>{if(open){opened.delete(node.id);closed.add(node.id)}else{closed.delete(node.id);opened.add(node.id)}render(snapshot)};
  wrap.append(content);return wrap
@@ -79,14 +96,102 @@ function stepView(node,index,nodes,usage){
 function render(data){snapshot=data;const view=document.querySelector("#view");view.replaceChildren();const run=data.run,roots=data.nodes.filter(n=>!n.parent_id),tot=usageSum(data.usage);
  const header=el("div","header");txt(header,"span","eyebrow","AGENT EXECUTION · "+run.id.substring(0,12));txt(header,"span","badge",label(run.status));view.append(header);
  txt(view,"h1","",run.title);txt(view,"p","muted",(run.project||"Local")+" · Workflow de agentes");
+ txt(view,"div","timestamp","Actualizado · "+dateTime(run.updated_at));
  const cards=el("div","cards");for(const item of [[money(tot.cost),"Coste USD"+(tot.unknown?" · parcial":"")],[compact(tot.tokens),"Tokens entrada + salida"],[roots.filter(n=>n.status==="completed").length+"/"+roots.length,"Fases completadas"]]){const c=el("div","card");txt(c,"b","",item[0]);txt(c,"small","",item[1]);cards.append(c)}view.append(cards);
  txt(view,"div","eyebrow","EXECUTION TIMELINE");const timeline=el("div","timeline");roots.forEach((n,i)=>timeline.append(stepView(n,i,data.nodes,data.usage)));view.append(timeline);
  txt(view,"div","footer","◉ SQLite local · Actualización SSE · Costes reportados/estimados según proveedor");
 }
-async function refresh(){if(!selected)return;try{render(await get("/api/runs/"+encodeURIComponent(selected)))}catch(e){console.error(e)}}
-async function listRuns(){const box=document.querySelector("#runs"),runs=await get("/api/runs");box.replaceChildren();for(const r of runs){const btn=el("button","run"+(r.id===selected?" selected":""),r.title);txt(btn,"small","",r.project+" · "+label(r.status));btn.onclick=()=>select(r.id);box.append(btn)}if(!selected&&runs.length)await select(runs[0].id)}
-async function select(id){selected=id;if(stream)stream.close();opened.clear();closed.clear();await refresh();await listRunsNoSelect();stream=new EventSource("/api/runs/"+encodeURIComponent(id)+"/events");stream.addEventListener("update",async()=>{await refresh();await listRunsNoSelect()})}
-async function listRunsNoSelect(){const box=document.querySelector("#runs"),runs=await get("/api/runs");box.replaceChildren();for(const r of runs){const b=el("button","run"+(r.id===selected?" selected":""),r.title);txt(b,"small","",r.project+" · "+label(r.status));b.onclick=()=>select(r.id);box.append(b)}}
+function sessionButton(r){
+ const active=r.status==="running",b=el("button","run"+(active?" active-run":"")+(r.id===selected?" selected":""));
+ txt(b,"div","run-title",r.title);
+ txt(b,"small","",r.project||"Local");
+ txt(b,"span","run-state",(active?"● ":"○ ")+label(r.status));
+ txt(b,"div","timestamp",dateTime(r.updated_at));
+ b.onclick=()=>select(r.id);
+ return b;
+}
+async function listRunsNoSelect(){
+ const box=document.querySelector("#runs"),runs=await get("/api/runs");
+ box.replaceChildren();
+ const active=runs.filter(r=>r.status==="running");
+ const inactive=runs.filter(r=>r.status!=="running");
+ const activeSection=el("section","session-group");
+ const activeHeader=el("div","session-header");
+ txt(activeHeader,"span","","● SESIONES ACTIVAS");
+ txt(activeHeader,"span","session-count",String(active.length));
+ activeSection.append(activeHeader);
+ if(active.length)active.forEach(r=>activeSection.append(sessionButton(r)));
+ else txt(activeSection,"p","muted","No hay sesiones en ejecución");
+ box.append(activeSection);
+ const inactiveSection=el("section","session-group");
+ const toggle=el("button","session-header");
+ toggle.type="button";toggle.setAttribute("aria-expanded",String(inactiveExpanded));
+ const heading=el("span","");heading.textContent="◌ SESIONES INACTIVAS";
+ txt(heading,"span","session-count",String(inactive.length));
+ toggle.append(heading,el("span","",inactiveExpanded?"⌃":"⌄"));
+ toggle.onclick=()=>{inactiveExpanded=!inactiveExpanded;listRunsNoSelect().catch(console.error)};
+ inactiveSection.append(toggle);
+ if(inactiveExpanded){
+  if(inactive.length)inactive.forEach(r=>inactiveSection.append(sessionButton(r)));
+  else txt(inactiveSection,"p","muted","Sin sesiones inactivas");
+ }
+ box.append(inactiveSection);
+ return runs;
+}
+function eventName(item){
+ const payload=JSON.parse(item.payload||"{}");
+ const id=payload.node_id;
+ const node=snapshot?.nodes.find(n=>n.id===id);
+ const name=node?.title||"Ejecución";
+ if(item.kind==="node.status")return name+" · "+label(payload.status);
+ if(item.kind==="run.status")return "Sesión · "+label(payload.status);
+ if(item.kind==="usage")return name+" · Consumo de tokens";
+ if(item.kind==="log")return name+" · Evento";
+ return name+" · "+item.kind;
+}
+async function showHistory(id){
+ const records=await get("/api/runs/"+encodeURIComponent(id)+"/history");
+ if(id!==selected)return;
+ const view=document.querySelector("#view");
+ const area=el("section","activity");
+ txt(area,"div","eyebrow","HISTORIAL DE ACCIONES");
+ const panel=el("div","activity-list");
+ const latest=records.slice(-40).reverse();
+ if(!latest.length)txt(panel,"div","muted","Todavía no hay eventos registrados");
+ latest.forEach(record=>{
+  const item=el("div","activity-item"),main=el("div");
+  txt(main,"div","name",eventName(record));
+  txt(main,"div","timestamp",dateTime(record.created_at));
+  item.append(main);
+  txt(item,"span","muted","#"+record.seq);
+  panel.append(item);
+ });
+ area.append(panel);view.append(area);
+}
+async function refresh(){
+ if(!selected)return;
+ try{
+  const id=selected;
+  const data=await get("/api/runs/"+encodeURIComponent(id));
+  if(selected!==id)return;
+  render(data);
+  await showHistory(id);
+ }catch(e){console.error(e)}
+}
+async function listRuns(){
+ const runs=await listRunsNoSelect();
+ if(!selected&&runs.length)await select((runs.find(r=>r.status==="running")||runs[0]).id);
+}
+async function select(id){
+ selected=id;
+ if(stream)stream.close();
+ opened.clear();closed.clear();
+ if((await get("/api/runs")).find(r=>r.id===id&&r.status!=="running"))inactiveExpanded=true;
+ await refresh();
+ await listRunsNoSelect();
+ stream=new EventSource("/api/runs/"+encodeURIComponent(id)+"/events");
+ stream.addEventListener("update",async()=>{await refresh();await listRunsNoSelect()});
+}
 setInterval(async()=>{try{await listRunsNoSelect()}catch(e){console.warn(e)}},5000);
 document.querySelector("#demo").onclick=async()=>{try{const r=await post("/api/demo",{});await select(r.id)}catch(e){alert(e.message)}};
 (async()=>{try{key=(await get("/api/bootstrap")).key;await listRuns()}catch(e){document.querySelector("#view").textContent="Error al conectar con backend: "+e.message}})();
