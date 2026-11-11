@@ -7,7 +7,7 @@ let lastError = "";
 let keyCache = null;
 let lastSession = "";
 let seq = 0;
-let sending = null;
+
 
 function oneLine(s, limit=120) {
   return String(s ?? "").replace(/\s+/g," ").slice(0,limit).trim();
@@ -29,46 +29,88 @@ async function apiKey($) {
   keyCache=bootstrap.key;
   return keyCache;
 }
+const pending = [];
+const MAX_PENDING = 100;
+const BATCH_SIZE = 40;
+const BATCH_DELAY_MS = 500;
+let flushTimer=null;
+let flushing=false;
+let dropped=0;
+let sent=0;
+
 export function bridgeStatus() {
-  return {connected:!lastError && !!lastSession, sessionId:lastSession, error:lastError};
+  return {
+    connected:!lastError && !!lastSession, sessionId:lastSession,
+    error:lastError, queued:pending.length, dropped, sent,
+  };
 }
-export async function sendSnapshot($, data) {
-  // Never overlap HTTP calls and never make Claude's tool execution depend
-  // on a backend response; callers catch and report local errors.
-  if(sending)return sending;
-  sending=(async()=>{
-    const session_id=oneLine(await $.session.id(),128);
-    if(!session_id)throw new Error("Claude no expone todavía la sesión");
-    const cwd=oneLine(await $.session.cwd(),900);
+function queueFlush($) {
+  if(flushTimer!==null||flushing||!pending.length)return;
+  flushTimer=setTimeout(()=>{
+    flushTimer=null;
+    void flush($);
+  },BATCH_DELAY_MS);
+}
+async function flush($) {
+  if(flushing || !pending.length)return;
+  flushing=true;
+  const batch=pending.splice(0,BATCH_SIZE);
+  try {
     const key=await apiKey($);
-    const agents=(data.agents || []).slice(0,30).map(a=>({
-      id:oneLine(a.id,128),
-      title:oneLine(a.title||"Subagent",145),
-      status:["pending","running","waiting","idle","completed","failed","killed"].includes(a.status)?a.status:"pending",
-      model:oneLine(a.model,95),
-    })).filter(a=>a.id);
-    const payload={
-      session_id, cwd, agents,
-      status: data.status==="waiting"?"waiting":data.status==="idle"?"idle":data.status==="failed"?"failed":"running",
-      tool: data.lastTool ? oneLine(data.lastTool.tool,90) : null,
-      agent_id: data.lastTool ? oneLine(data.lastTool.agent,110) : null,
-      event_id: "mod-"+Date.now()+"-"+(++seq),
-      context_tokens: Number.isInteger(data.context?.tokens)?data.context.tokens:null,
-      context_window: Number.isInteger(data.context?.window)?data.context.window:null,
-    };
-    const response=await request($,"/api/integrations/claude/events",{
+    await request($,"/api/integrations/claude/events/batch",{
       method:"POST",
       headers:{"content-type":"application/json","X-Monitor-Key":key},
-      body:JSON.stringify(payload)
+      body:JSON.stringify(batch),
     });
-    lastSession=session_id;
+    lastSession=batch[batch.length-1].session_id;
     lastError="";
-    return response;
-  })().catch(e=>{
+    sent+=batch.length;
+  } catch(e) {
     lastError=errorText(e);
-    throw e;
-  }).finally(()=>{sending=null});
-  return sending;
+    // Bounded queue: a down backend cannot grow the Mod's memory forever.
+    // Preserve event IDs on retry so the backend can ignore duplicates.
+    pending.unshift(...batch);
+    if(pending.length>MAX_PENDING){
+      dropped+=pending.length-MAX_PENDING;
+      pending.splice(0,pending.length-MAX_PENDING);
+    }
+  } finally {
+    flushing=false;
+    // On failure, wait a bounded period rather than hammering localhost.
+    if(pending.length){
+      flushTimer=setTimeout(()=>{
+        flushTimer=null;
+        void flush($);
+      },lastError?5000:BATCH_DELAY_MS);
+    }
+    try { $.ui.invalidate("ui.render"); } catch {}
+  }
+}
+export async function sendSnapshot($, data) {
+  // The hook only resolves session metadata and queues a small event;
+  // localhost HTTP is deferred. Calling code must not await the network.
+  const session_id=oneLine(await $.session.id(),128);
+  if(!session_id)throw new Error("Claude no expone todavía la sesión");
+  const cwd=oneLine(await $.session.cwd(),900);
+  const agents=(data.agents||[]).slice(0,30).map(a=>({
+    id:oneLine(a.id,128),
+    title:oneLine(a.title||"Subagent",145),
+    status:["pending","running","waiting","idle","completed","failed","killed"].includes(a.status)?a.status:"pending",
+    model:oneLine(a.model,95),
+  })).filter(a=>a.id);
+  const payload={
+    session_id,cwd,agents,
+    status:["waiting","idle","failed"].includes(data.status)?data.status:"running",
+    tool:data.lastTool?oneLine(data.lastTool.tool,90):null,
+    agent_id:data.lastTool?oneLine(data.lastTool.agent,110):null,
+    event_id:"mod-"+Date.now()+"-"+(++seq),
+    context_tokens:Number.isInteger(data.context?.tokens)?data.context.tokens:null,
+    context_window:Number.isInteger(data.context?.window)?data.context.window:null,
+  };
+  if(pending.length>=MAX_PENDING){pending.shift();dropped++}
+  pending.push(payload);
+  queueFlush($);
+  return {queued:true};
 }
 
 export async function listSharedWorkflows($) {
