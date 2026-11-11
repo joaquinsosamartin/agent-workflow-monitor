@@ -17,6 +17,7 @@ class Performance:
         self.samples = max(10, min(int(samples), 2000))
         self._durations = defaultdict(lambda: deque(maxlen=self.samples))
         self._counters = defaultdict(int)
+        self._cumulative_sources = {}
         self._lock = RLock()
 
     def observe(self, name: str, duration_ms: float):
@@ -26,6 +27,18 @@ class Performance:
     def count(self, name: str, amount: int = 1):
         with self._lock:
             self._counters[name] += amount
+
+    def report_cumulative(self, name: str, source: str, value: int):
+        """Count only new drops reported by a source; never double count retries."""
+        value=max(0,int(value))
+        with self._lock:
+            key=(name,source)
+            old=self._cumulative_sources.get(key,0)
+            self._counters[name]+=value-old if value>=old else value
+            self._cumulative_sources[key]=value
+            # Bound tracking by process lifetime and number of active sources.
+            if len(self._cumulative_sources)>1000:
+                self._cumulative_sources.pop(next(iter(self._cumulative_sources)))
 
     @contextmanager
     def track(self, name: str):
