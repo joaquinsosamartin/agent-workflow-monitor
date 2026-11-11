@@ -145,8 +145,13 @@ async def publish(run_id:str,data:EventIn):
     return {'sequence':seq,'duplicate':seq is None}
 
 @app.get('/api/runs/{run_id}/events')
-async def event_stream(run_id:str,request:Request,after:int=0):
+async def event_stream(run_id:str,request:Request,after:int|None=None):
     if store.snapshot(run_id) is None: raise HTTPException(404,'Run not found')
+    # New subscribers only need fresh events. Replaying the entire database
+    # flooded the browser with hundreds of redundant updates on selection.
+    if after is None:
+        recent = store.recent_events(run_id, 1)
+        after = recent[0]['seq'] if recent else 0
     q:asyncio.Queue=asyncio.Queue(maxsize=256)
     listeners.setdefault(run_id,set()).add(q)
     async def stream():
