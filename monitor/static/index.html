@@ -56,6 +56,15 @@ h1{font-size:27px;letter-spacing:-.7px;margin:15px 0 5px}.header{display:flex;al
 .children{background:var(--panel);border:1px solid var(--border);border-radius:13px;margin-top:12px;padding:5px 14px}
 .child{display:flex;align-items:flex-start;justify-content:space-between;gap:9px;border-bottom:1px solid #30425a;padding:12px 0;font-size:12px}.child:last-child{border-bottom:0}
 .child span{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.agents-section{margin-top:28px}
+.agents-summary{font-size:12px;color:#a9c2e0;margin:8px 0 14px}
+.agent-card{background:#192b42;border:1px solid #36506e;border-left:3px solid #b8a0eb;border-radius:12px;padding:13px 15px;margin:10px 0}
+.agent-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.agent-card-title{color:#edf4ff;font-weight:650;font-size:13px;overflow-wrap:anywhere}
+.agent-card-meta{font-size:11px;color:#91aacb;margin-top:5px}
+.agent-card-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.agent-card-actions button{font-size:11px;border:1px solid #4b688b;background:#233d5b;border-radius:7px;color:#e7f2ff;padding:6px 10px}
+.agent-card-details{margin-top:10px;padding-top:10px;border-top:1px solid #314762;font-size:12px;color:#b2c7df;display:grid;gap:6px}
 .footer{border-top:1px solid var(--border);padding-top:15px;margin-top:20px;color:var(--muted);font-size:12px}
 .empty{padding:34px;border:1px dashed var(--border);border-radius:15px;color:var(--muted)}
 @media(max-width:750px){.layout{display:block}aside{border-right:0;border-bottom:1px solid var(--border);padding:18px}.brand{margin-bottom:12px}main{padding:20px}.card{padding:11px}.card b{font-size:17px}.cards{gap:7px}}
@@ -70,6 +79,7 @@ let key="",selected="",stream=null,snapshot=null,inactiveExpanded=false,historyE
 let lastRunSignature="",lastSnapshotSignature="",refreshTimer=null,historyExpanded=false,refreshing=false;
 let treeSignature="",processTreeOpened=new Set(),selectedProcess=null;
 let detailSelection={type:"none",id:null},selectionVersion=0,refreshRequestId=0;
+const expandedAgentCards=new Set();
 let dashboardRequest=null,dashboardData=null,dashboardFetchedAt=0;
 async function getDashboard(force=false){
  if(!force&&dashboardData&&Date.now()-dashboardFetchedAt<8000)return dashboardData;
@@ -173,9 +183,82 @@ function sessionButton(r){
  return b;
 }
 
-function showProcessDetails(p){
- // A manually grouped Claude is still a process, not necessarily a matched
- // transcript session. Render the same card layout without inventing usage.
+function coordinatedAgents(process){
+ // Only Claude branches underneath a Codex tree node are shown here.
+ // Nested Claude subprocesses remain counted, not presented as
+ // independent assigned agents unless they have their own session.
+ const result=[], visited=new Set();
+ function visit(node,depth){
+   if(visited.has(node.pid))return;
+   visited.add(node.pid);
+   if(node.provider==="claude"){
+     result.push({node,depth});
+     return;
+   }
+   for(const child of node.children||[])visit(child,depth+1);
+ }
+ for(const child of process.children||[])visit(child,1);
+ return result;
+}
+function addCoordinatedAgents(view,process){
+ if(process.provider!=="codex")return;
+ const agents=coordinatedAgents(process);
+ const section=el("section","agents-section");
+ const header=el("div","header");
+ txt(header,"span","eyebrow","AGENTES COORDINADOS");
+ txt(header,"span","badge",agents.length+" observados");
+ section.append(header);
+ txt(section,"div","agents-summary",
+     agents.length?"Procesos Claude agrupados bajo este Codex. Puedes consultar cada agente sin abandonar el orquestador.":"No hay procesos Claude relacionados con este orquestador. Puedes vincularlos desde el árbol.");
+ for(const {node:agent} of agents){
+   const card=el("div","agent-card");
+   const head=el("div","agent-card-head");
+   txt(head,"span","agent-card-title","✧ Claude · "+(agent.session?.title||"PID "+agent.pid));
+   txt(head,"span","badge",agent.session?"Sesión vinculada":"Proceso vivo");
+   card.append(head);
+   txt(card,"div","agent-card-meta","PID "+agent.pid+" · "+(
+     agent.relation==="user_confirmed"?"Asociación manual":
+     agent.relation==="process_parent"?"Proceso hijo observado":"Proceso descendiente"));
+   if(agent.session?.activity?.title){
+     txt(card,"div","agent-card-meta","Última acción · "+agent.session.activity.title);
+   }
+   const actions=el("div","agent-card-actions");
+   const details=el("button","","");
+   const expanded=expandedAgentCards.has(agent.pid);
+   details.textContent=expanded?"Contraer":"Ver resumen";
+   details.setAttribute("aria-expanded",String(expanded));
+   details.onclick=()=>{
+     if(expandedAgentCards.has(agent.pid))expandedAgentCards.delete(agent.pid);
+     else expandedAgentCards.add(agent.pid);
+     showProcessDetails(process,false);
+   };
+   const open=el("button","","Abrir agente");
+   open.onclick=()=>showProcessDetails(agent);
+   actions.append(details,open);
+   card.append(actions);
+   if(expanded){
+     const info=el("div","agent-card-details");
+     txt(info,"div","","Identidad · Claude / PID "+agent.pid);
+     txt(info,"div","","Inicio · "+dateTime(agent.started_at));
+     txt(info,"div","","Sesión · "+(agent.session?agent.session.title:"Sin correlación JSONL"));
+     txt(info,"div","","Actividad · "+(agent.session?.activity?.title||"Sin actividad atribuible"));
+     txt(info,"div","","Tokens y coste · "+(agent.session?"Consultar sesión vinculada":"Sin datos verificables"));
+     if((agent.children||[]).length)txt(info,"div","",
+       "Subprocesos adicionales · "+agent.children.length+" (no se contabilizan como sesiones independientes)");
+     if(agent.session){
+       const sessionButton=el("button","tree-action","Abrir workflow de la sesión");
+       sessionButton.onclick=()=>select(agent.session.id);
+       info.append(sessionButton);
+     }
+     card.append(info);
+   }
+   section.append(card);
+ }
+ view.append(section);
+}
+function showProcessDetails(p,refreshTree=true){
+ // Reuse Agent Execution presentation for any selected process; only a
+ // correlated session can supply token counts or costs.
  detailSelection={type:"process",id:p.pid};
  selectionVersion++;
  refreshRequestId++;
@@ -234,9 +317,9 @@ function showProcessDetails(p){
  }else{
    txt(view,"p","tree-hint","No hay una sesión JSONL correlacionada con este PID. Los tokens, costes y subpasos no se pueden atribuir de forma fiable.");
  }
+ addCoordinatedAgents(view,p);
  txt(view,"div","footer","◉ SQLite local · Procesos vivos · Solo métricas verificadas");
- // Keep the selected process visually highlighted without changing detail.
- refreshProcessTree().catch(console.error);
+ if(refreshTree)refreshProcessTree().catch(console.error);
 }
 function renderProcessTree(payload){
  const box=document.querySelector("#process-tree");
