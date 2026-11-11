@@ -23,6 +23,20 @@ class ProcessWatchTests(unittest.TestCase):
         self.assertEqual(_session_uuid("codex", f"rollout-2026-11-11T10-00-00-{sid}.jsonl"), sid)
         self.assertEqual(_session_uuid("claude", "unrelated.jsonl"), None)
 
+    def test_unmatched_codex_kept_visible_in_diagnostics(self):
+        registry = ProcessRegistry(ttl_seconds=300)
+        registry._processes = [
+            {"pid": 700, "ppid": 2, "provider": "codex", "session_id": None},
+            {"pid": 701, "ppid": 700, "provider": "claude", "session_id": None}
+        ]
+        import time
+        registry._updated = time.monotonic()
+        result = registry.classify([], [])
+        self.assertEqual(result["processes_by_provider"], {"codex": 1, "claude": 1})
+        self.assertEqual(len(result["unmatched_processes"]), 2)
+        self.assertEqual(result["process_relationships"][0]["parent_pid"], 700)
+        self.assertEqual(result["process_relationships"][0]["child_pid"], 701)
+
     def test_only_explicit_matches_confirm_active(self):
         sid = "12345678-1111-2222-3333-123456789abc"
         registry = ProcessRegistry(ttl_seconds=300)
