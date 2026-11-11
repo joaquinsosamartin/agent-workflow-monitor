@@ -208,9 +208,23 @@ class SessionObserver:
 
     def scan_once(self):
         processed = 0
+        recent: dict[str, float] = {}
         for provider, path in self._files():
             self._scan_file(provider, path)
+            rid = stable("run", provider, self._session_id(provider, path))
+            try:
+                recent[rid] = max(recent.get(rid, 0), path.stat().st_mtime)
+            except OSError:
+                pass
             processed += 1
+        # Idle means no new transcript activity; it does not imply completion.
+        for rid, modified in recent.items():
+            if time.time() - modified < 120:
+                continue
+            snap = self.store.snapshot(rid)
+            if snap and snap["run"]["status"] == "running":
+                self._emit({"run_id":rid,"type":"run.status","status":"idle",
+                            "external_id":f"observer-idle:{rid}:{int(modified)}"})
         return processed
 
     def _process(self, provider, path, session_id, row):
@@ -232,7 +246,6 @@ class SessionObserver:
         if is_subagent:
             target = self._ensure_node(rid, f"agent:{agent_id}", f"Subagent · {str(agent_id)[:12]}",
                                        f"Claude · {str(agent_id)[:12]}", "claude", parent)
-        key = f"observer:{path}:{row.get('uuid') or row.get('message', {}).get('id') or row.get('timestamp')}"
         if typ == "assistant":
             msg = row.get("message") or {}
             usage = msg.get("usage") or {}
@@ -257,6 +270,11 @@ class SessionObserver:
                 if not call:
                     continue
                 # Do not persist tool input, prompts, or outputs.
+                with self.store.lock:
+                    count = self.store.conn.execute("SELECT COUNT(*) FROM nodes WHERE run_id=? AND parent_id=?",
+                                                   (rid,target)).fetchone()[0]
+                if count >= MAX_TOOLS_PER_SESSION:
+                    continue
                 node = self._ensure_node(rid, f"tool:{agent_id or 'main'}:{call}",
                                          f"Tool · {name[:70]}", "Claude", "claude", target)
                 self._emit({"run_id":rid,"type":"node.status","node_id":node,
@@ -316,6 +334,11 @@ class SessionObserver:
                 call=payload.get("call_id")
                 if call:
                     name=payload.get("name") or kind
+                    with self.store.lock:
+                        count=self.store.conn.execute("SELECT COUNT(*) FROM nodes WHERE run_id=? AND parent_id=?",
+                                                      (rid,root)).fetchone()[0]
+                    if count >= MAX_TOOLS_PER_SESSION:
+                        return
                     nid=self._ensure_node(rid,f"tool:{call}",f"Tool · {name[:70]}",
                                           "Codex","codex",root)
                     self._emit({"run_id":rid,"type":"node.status","node_id":nid,
