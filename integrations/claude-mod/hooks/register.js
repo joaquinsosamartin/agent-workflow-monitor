@@ -10,6 +10,7 @@ let state = {
   open: false, startedAt: Date.now(), toolCount: 0, lastTool: "",
   tools: [], agents: [], usage: null, status: "idle", error: null, expandedAgents: {},
   sharedPlans: [], selectedPlan: null, planData: null, delegatedExecutions: [], expandedPhases: {},
+  lastHookLatencyMs: null,
 };
 
 function clean(text, max=85) {
@@ -53,6 +54,7 @@ function publish($, latestTool=null) {
     agents:state.agents,
     context:state.usage,
     lastTool:latestTool,
+    hookLatencyMs:state.lastHookLatencyMs,
   }).catch(()=>$.ui.invalidate("ui.render"));
 }
 async function loadPlans($) {
@@ -155,6 +157,8 @@ function draw($, e) {
     Text({children:"made with ❤️ by joaquinsosa.es",dimColor:true}),
     line("Estado: "+state.status+"  ·  Herramientas: "+state.toolCount),
     line("Monitor local: "+(bridgeStatus().connected?"conectado":bridgeStatus().error?"no disponible":"sin sincronizar"),bridgeStatus().connected?"green":"gray"),
+    line("Telemetría: "+bridgeStatus().queued+" pendientes · "+bridgeStatus().sent+" enviados · "+bridgeStatus().dropped+" descartados","gray"),
+    line("Hook observado: "+(state.lastHookLatencyMs==null?"—":state.lastHookLatencyMs+" ms"),"gray"),
   ];
   if(state.usage?.window) {
     rows.push(line("Contexto: "+short(state.usage.tokens??0)+" / "+short(state.usage.window)+" · "+(state.usage.percent??"—")+"%","cyan"));
@@ -259,8 +263,10 @@ export function register(on){
   });
   on("turn.complete",async($,e,next)=>{
     const result=await next(e);
+    const observationStarted=Date.now();
     if(!e.agentId)state.status="waiting";
     await capture($);
+    state.lastHookLatencyMs=Date.now()-observationStarted;
     publish($,state.tools[state.tools.length-1]??null);
     return result;
   });
@@ -271,6 +277,7 @@ export function register(on){
     return result;
   });
   on("tool.call",async($,e,next)=>{
+    const observationStarted=Date.now();
     state.toolCount++;
     const item={
       time:new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),
@@ -280,6 +287,7 @@ export function register(on){
     state.lastTool=item.tool;
     state.tools=[...state.tools,item].slice(-MAX_TOOLS);
     if(state.open)$.ui.invalidate("ui.render");
+    state.lastHookLatencyMs=Date.now()-observationStarted;
     const outcome=await next(e);
     if(e.tool==="TaskCreate"||e.tool==="TaskUpdate"){
       try {recordTaskChange($,e,outcome)}
