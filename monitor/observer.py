@@ -38,6 +38,31 @@ def path_roots():
     return {"claude": claude, "codex": codex}
 
 
+def short_title(value, fallback="", limit=105):
+    """Store only a short one-line task label, never an entire conversation."""
+    if not isinstance(value,str):
+        return fallback
+    import re
+    line = re.sub(r"\\s+", " ", value).strip()
+    if not line or line.startswith(("<", "{")):
+        return fallback
+    line = re.sub(r"(?i)(sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{12,}|Bearer\\s+\\S+)", "[redacted]", line)
+    return (line[:limit-1].rstrip()+"…") if len(line)>limit else line
+
+
+def user_title(message):
+    if isinstance(message,str): return short_title(message)
+    if isinstance(message,dict):
+        content=message.get("content")
+        if isinstance(content,str): return short_title(content)
+        if isinstance(content,list):
+            for block in content:
+                if isinstance(block,dict) and block.get("type")=="text":
+                    title=short_title(block.get("text"))
+                    if title:return title
+    return ""
+
+
 class SessionObserver:
     def __init__(self, store: Store, on_event=None, poll_seconds=2.0, max_age_hours=12):
         self.store = store
@@ -246,6 +271,11 @@ class SessionObserver:
         if is_subagent:
             target = self._ensure_node(rid, f"agent:{agent_id}", f"Subagent · {str(agent_id)[:12]}",
                                        f"Claude · {str(agent_id)[:12]}", "claude", parent)
+        if typ == "user" and not is_subagent:
+            title=user_title(row.get("message"))
+            if title:
+                self.store.set_run_title(rid, title, "Claude ·")
+                self.store.set_node_title(parent, title, "Claude Code session")
         if typ == "assistant":
             msg = row.get("message") or {}
             usage = msg.get("usage") or {}
@@ -275,8 +305,19 @@ class SessionObserver:
                                                    (rid,target)).fetchone()[0]
                 if count >= MAX_TOOLS_PER_SESSION:
                     continue
+                tool_input=block.get("input") or {}
+                if not isinstance(tool_input,dict): tool_input={}
+                description=short_title(tool_input.get("description") or tool_input.get("task"))
+                # Human-readable labels from Claude's Task/Agent tool description,
+                # never the full delegated prompt.
+                if name in ("Task","Agent") and description:
+                    tool_title=f"Delegar · {description}"
+                else:
+                    tool_title=f"Tool · {name[:70]}"
                 node = self._ensure_node(rid, f"tool:{agent_id or 'main'}:{call}",
-                                         f"Tool · {name[:70]}", "Claude", "claude", target)
+                                         tool_title, "Claude", "claude", target)
+                if name in ("Task","Agent") and description:
+                    self.store.set_node_title(target, description, "Subagent ·") if is_subagent else None
                 self._emit({"run_id":rid,"type":"node.status","node_id":node,
                             "status":"running","external_id":f"claude-tool-start:{call}"})
         elif typ == "user":
@@ -307,6 +348,11 @@ class SessionObserver:
         root = self._ensure_node(rid,"session","Codex CLI session","Codex","codex")
         if typ == "event_msg":
             ev = payload.get("type")
+            if ev == "user_message":
+                title=short_title(payload.get("message"))
+                if title:
+                    self.store.set_run_title(rid,title,"Codex ·")
+                    self.store.set_node_title(root,title,"Codex CLI session")
             if ev == "token_count":
                 info=payload.get("info") or {}
                 totals=info.get("total_token_usage") or {}
@@ -330,6 +376,11 @@ class SessionObserver:
                             "external_id":f"codex-run:{ev}:{row.get('timestamp')}"})
         elif typ == "response_item":
             kind=payload.get("type")
+            if kind == "message" and payload.get("role") == "user":
+                title=user_title(payload)
+                if title:
+                    self.store.set_run_title(rid,title,"Codex ·")
+                    self.store.set_node_title(root,title,"Codex CLI session")
             if kind in ("function_call","custom_tool_call"):
                 call=payload.get("call_id")
                 if call:
