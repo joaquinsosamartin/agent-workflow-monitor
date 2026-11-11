@@ -1,0 +1,66 @@
+{
+  "id": "pops-customer-api",
+  "title": "POPS — Customer API",
+  "project": "security-newpops",
+  "phases": [
+    {
+      "id": "analysis",
+      "title": "Analizar requisitos y contratos",
+      "provider": "claude",
+      "agent_id": "architect",
+      "status": "completed",
+      "order": 0
+    },
+    {
+      "id": "implementation",
+      "title": "Implementar Customer API",
+      "provider": "codex",
+      "agent_id": "backend",
+      "status": "running",
+      "order": 1
+    },
+    {
+      "id": "entities",
+      "parent_id": "implementation",
+      "title": "Entidades y DTOs",
+      "provider": "codex",
+      "agent_id": "backend",
+      "status": "completed",
+      "order": 0
+    },
+    {
+      "id": "endpoints",
+      "parent_id": "implementation",
+      "title": "Endpoints y handlers",
+      "provider": "codex",
+      "agent_id": "backend",
+      "status": "running",
+      "order": 1
+    },
+    {
+      "id": "qa",
+      "title": "Pruebas y seguridad",
+      "provider": "claude",
+      "agent_id": "qa",
+      "status": "pending",
+      "order": 2
+    },
+    {
+      "id": "tests",
+      "parent_id": "qa",
+      "title": "Tests unitarios",
+      "provider": "claude",
+      "agent_id": "qa",
+      "status": "pending",
+      "order": 0
+    },
+    {
+      "id": "review",
+      "title": "Revisión final y PR",
+      "provider": "codex",
+      "agent_id": "reviewer",
+      "status": "pending",
+      "order": 3
+    }
+  ]
+}
