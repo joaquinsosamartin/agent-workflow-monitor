@@ -230,6 +230,17 @@ async def set_workflow_phase(plan_id:str, phase_id:str, data:PhaseUpdate):
     except KeyError as exc:
         raise HTTPException(status_code=404,detail=str(exc))
 
+from .workflow_tasks import ClaudeTaskEvent, import_task
+
+@app.post('/api/integrations/claude/task-events',dependencies=[Depends(authorize)])
+async def claude_task_event(event:ClaudeTaskEvent):
+    try:
+        return await bounded(import_task,store,event,operation="Claude task import")
+    except KeyError as exc:
+        raise HTTPException(status_code=404,detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409,detail=str(exc))
+
 @app.get('/api/dashboard')
 async def dashboard():
     return await bounded(build_dashboard, operation="dashboard")
