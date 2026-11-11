@@ -308,7 +308,7 @@ def get_run(run_id:str):
 async def publish(run_id:str,data:EventIn):
     event=data.model_dump(exclude_none=True)
     event['run_id']=run_id
-    try: seq=store.save_event(event)
+    try: seq=await asyncio.to_thread(store.save_event,event)
     except ValueError as ex: raise HTTPException(400,str(ex))
     if seq:
         for q in list(listeners.get(run_id,())):
@@ -317,11 +317,11 @@ async def publish(run_id:str,data:EventIn):
 
 @app.get('/api/runs/{run_id}/events')
 async def event_stream(run_id:str,request:Request,after:int|None=None):
-    if store.snapshot(run_id) is None: raise HTTPException(404,'Run not found')
+    if await asyncio.to_thread(store.snapshot,run_id) is None: raise HTTPException(404,'Run not found')
     # New subscribers only need fresh events. Replaying the entire database
     # flooded the browser with hundreds of redundant updates on selection.
     if after is None:
-        recent = store.recent_events(run_id, 1)
+        recent = await asyncio.to_thread(store.recent_events,run_id,1)
         after = recent[0]['seq'] if recent else 0
     q:asyncio.Queue=asyncio.Queue(maxsize=256)
     listeners.setdefault(run_id,set()).add(q)
@@ -329,7 +329,7 @@ async def event_stream(run_id:str,request:Request,after:int|None=None):
         last=after
         try:
             while True:
-                records=store.event_list(run_id,last,200)
+                records=await asyncio.to_thread(store.event_list,run_id,last,200)
                 if records:
                     for record in records:
                         last=record['seq']
