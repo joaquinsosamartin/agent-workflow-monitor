@@ -167,9 +167,10 @@ async def event_stream(run_id:str,request:Request,after:int=0):
     return StreamingResponse(stream(),media_type='text/event-stream',headers={'Cache-Control':'no-cache','X-Accel-Buffering':'no'})
 
 @app.get('/api/runs/{run_id}/history')
-def history(run_id:str,after:int=0):
+def history(run_id:str,after:int=0,limit:int=40):
     if store.snapshot(run_id) is None: raise HTTPException(404,'Run not found')
-    return store.event_list(run_id,after)
+    if after: return store.event_list(run_id,after,min(max(limit,1),200))
+    return store.recent_events(run_id,limit)
 
 @app.post('/api/demo',dependencies=[Depends(authorize)])
 def demo():
