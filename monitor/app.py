@@ -10,10 +10,12 @@ from typing import Literal
 from .db import Store
 from .process_watch import ProcessRegistry
 from .performance import perf, resource_snapshot
+from .performance_history import PerformanceHistory
 
 STATIC = Path(__file__).resolve().parent/'static'
 DATA_DIR=Path(os.getenv('AGENT_MONITOR_DATA', str(Path.home()/'.agent-monitor')))
 store = Store(DATA_DIR/'monitor.db')
+performance_history=PerformanceHistory(DATA_DIR/'performance.db')
 process_registry = ProcessRegistry()
 listeners: dict[str, set[asyncio.Queue]] = {}
 
@@ -102,23 +104,34 @@ observer = SessionObserver(store, poll_seconds=max(1.0,float(os.getenv('AGENT_MO
 
 @app.on_event('startup')
 async def observer_start():
+    performance_history.start()
     if os.getenv('AGENT_MONITOR_OBSERVE', '1').lower() not in ('0','false','no'):
         observer.start()
 
 @app.on_event('shutdown')
 async def observer_shutdown():
     observer.stop()
+    performance_history.stop()
 
 @app.get('/api/performance')
 async def get_performance():
     return {
         **perf.snapshot(),
         "process": await bounded(resource_snapshot, operation="resource sample"),
+        "history": {"last_sample":performance_history.last_sample,
+                    "last_error":performance_history.last_error,
+                    "interval_seconds":performance_history.interval,
+                    "retention_hours":performance_history.retention_hours},
         "observer": {"poll_seconds": observer.poll_seconds,
                      "last_scan": observer.scan_summary},
         "configuration": {"dashboard_refresh_seconds":
             max(2,int(os.getenv("AGENT_MONITOR_DASHBOARD_SECONDS","10")))},
     }
+
+@app.get('/api/performance/history')
+async def get_performance_history(hours:int=1,limit:int=500):
+    return await bounded(performance_history.history,hours,limit,
+                         operation="performance history")
 
 @app.get('/api/observer')
 def observer_status():
