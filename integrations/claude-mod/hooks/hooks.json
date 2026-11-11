@@ -1,0 +1,6 @@
+{
+  "description": "Agent workflow monitor mod hooks",
+  "modules": [
+    "./register.js"
+  ]
+}
