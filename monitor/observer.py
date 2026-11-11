@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .db import Store
+from .performance import perf
 
 log = logging.getLogger(__name__)
 NAMESPACE = uuid.UUID("269c06e4-5530-47c8-a064-a02e738ce48e")
@@ -309,6 +310,7 @@ class SessionObserver:
                 "error": self.last_errors[str(path)]}
 
     def scan_once(self):
+        scan_started = time.perf_counter()
         processed = 0
         by_provider = {}
         for provider, path in self._files():
@@ -319,7 +321,11 @@ class SessionObserver:
             except Exception as exc:
                 self.last_errors[str(path)] = f"{type(exc).__name__}: {str(exc)[:180]}"
                 log.exception("Unexpected observer error reading %s", path)
-        self.scan_summary = {"scanned": processed, "by_provider": by_provider}
+        duration_ms = (time.perf_counter()-scan_started)*1000
+        perf.observe("observer.scan_ms", duration_ms)
+        perf.count("observer.files_scanned", processed)
+        self.scan_summary = {"scanned": processed, "by_provider": by_provider,
+                             "duration_ms": round(duration_ms, 2)}
         # Reconcile ALL previously discovered sessions, including those older
         # than the lookback window. Otherwise stale 'running' records persist.
         # Activity-based classification is not proof an OS process is still alive.
