@@ -66,6 +66,20 @@ class DelegationTests(unittest.TestCase):
         self.assertEqual(phase["status"],"running")
         self.assertEqual(phase["agent_id"],"second")
 
+    def test_handoff_without_known_session_clears_old_session(self):
+        update_phase(self.store,"p1","qa",PhaseUpdate(
+            provider="claude",agent_id="first",session_id="old-session",
+            status="running",event_id="owner-one"))
+        start(self.store,"p1","qa",DelegationStart(
+            execution_id="new-owner",provider="claude",agent_id="next",
+            session_id=None,orchestrator_provider="codex"))
+        row=next(x for x in workflow_snapshot(self.store,"p1")["phases"]
+                 if x["id"]=="qa")
+        self.assertIsNone(row["session_id"])
+        result=finish(self.store,"new-owner",DelegationFinish(
+            exit_code=0,event_id="complete-new"))
+        self.assertTrue(result["phase_updated"])
+
     def test_rejects_execution_id_reuse_in_different_phase(self):
         start(self.store,"p1","qa",DelegationStart(
             execution_id="same",provider="claude",agent_id="agent"))
