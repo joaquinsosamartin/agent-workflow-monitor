@@ -7,7 +7,7 @@ const PANE_ID = "agent-workflow-monitor";
 const MAX_TOOLS = 12;
 let state = {
   open: false, startedAt: Date.now(), toolCount: 0, lastTool: "",
-  tools: [], agents: [], usage: null, status: "idle", error: null,
+  tools: [], agents: [], usage: null, status: "idle", error: null, expandedAgents: {},
 };
 
 function clean(text, max=85) {
@@ -45,7 +45,9 @@ async function capture($) {
 }
 function draw($, e) {
   const {Box,Text,Button}=$.ui.resolve(e);
-  const line=(value,color)=>Text({children:clean(value,110),color});
+  const line=(value,color)=>color==="gray"
+    ?Text({children:clean(value,110),dimColor:true})
+    :Text({children:clean(value,110),...(color?{color}: {})});
   const rows=[
     Text({children:"AGENT WORKFLOW MONITOR",bold:true,color:"cyan"}),
     line("Estado: "+state.status+"  ·  Herramientas: "+state.toolCount),
@@ -59,8 +61,24 @@ function draw($, e) {
   rows.push(line("── AGENTES ──","cyan"));
   if(!state.agents.length)rows.push(line("Sin subagentes registrados","gray"));
   for(const a of state.agents.slice(0,10)){
-    rows.push(line("◌ "+a.title+" ["+a.status+"]"));
-    if(a.model)rows.push(line("  "+a.model,"gray"));
+    const glyph=a.status==="completed"?"✓":a.status==="running"?"◌":a.status==="failed"?"!":"·";
+    rows.push(Box({flexDirection:"row",children:[
+      Text({children:glyph+" "+a.title+" ["+a.status+"]"}),
+      Button({
+        label:state.expandedAgents[a.id]?"−":"+",
+        onPress:()=>{
+          state.expandedAgents[a.id]=!state.expandedAgents[a.id];
+          $.ui.invalidate("ui.render");
+        }
+      })
+    ]}));
+    if(state.expandedAgents[a.id]){
+      rows.push(line("   Agent ID: "+a.id,"gray"));
+      if(a.model)rows.push(line("   Model: "+a.model,"gray"));
+      const activity=state.tools.filter(x=>x.agent===a.id).slice(-4).reverse();
+      for(const item of activity) rows.push(line("   "+item.time+" · "+item.tool,"gray"));
+      if(!activity.length)rows.push(line("   Sin acciones registradas","gray"));
+    }
   }
   rows.push(line("── ÚLTIMAS ACCIONES ──","cyan"));
   if(!state.tools.length)rows.push(line("Sin herramientas observadas","gray"));
@@ -75,7 +93,8 @@ function draw($, e) {
 async function open($){
   state.open=true;
   await capture($);
-  return $.ui.open({id:PANE_ID,title:"Agent Workflow",focus:true});
+  const placement=await $.ui.open({id:PANE_ID,title:"Agent Workflow",focus:true});
+  return placement;
 }
 export function register(on){
   on("session.start",async($,e,next)=>{
@@ -85,8 +104,10 @@ export function register(on){
     return result;
   });
   on("command.run",{command:"workflow"},async($,e)=>{
-    await open($);
-    return {text:"Agent Workflow Monitor opened. Details are displayed in its pane."};
+    const placement=await open($);
+    return {text:placement?.isPlaced===false
+      ?"Agent Workflow Monitor is not available on this surface. Use Claude Code CLI or Desktop Code."
+      :"Agent Workflow Monitor opened. Details are displayed in its pane."};
   });
   on("turn.start",async($,e,next)=>{
     if(!e.agentId)state.status="running";
