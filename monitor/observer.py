@@ -88,6 +88,7 @@ class SessionObserver:
         self.last_errors = {}
         self.file_stats = {}
         self.scan_summary = {"scanned": 0, "by_provider": {}}
+        self._last_reconcile = 0.0
         with self.store.lock, self.store.conn:
             self.store.conn.executescript("""
                 CREATE TABLE IF NOT EXISTS observer_files (
@@ -321,11 +322,18 @@ class SessionObserver:
             except Exception as exc:
                 self.last_errors[str(path)] = f"{type(exc).__name__}: {str(exc)[:180]}"
                 log.exception("Unexpected observer error reading %s", path)
-        duration_ms = (time.perf_counter()-scan_started)*1000
-        perf.observe("observer.scan_ms", duration_ms)
-        perf.count("observer.files_scanned", processed)
-        self.scan_summary = {"scanned": processed, "by_provider": by_provider,
-                             "duration_ms": round(duration_ms, 2)}
+        # Historical reconciliation can walk thousands of files and fetch
+        # full snapshots. Run at most once per minute, independently of the
+        # fast incremental tail (normally every five seconds).
+        now_reconcile = time.monotonic()
+        if now_reconcile - self._last_reconcile < 60:
+            duration_ms = (time.perf_counter()-scan_started)*1000
+            perf.observe("observer.scan_ms", duration_ms)
+            perf.count("observer.files_scanned", processed)
+            self.scan_summary = {"scanned":processed,"by_provider":by_provider,
+                                 "duration_ms":round(duration_ms,2),"reconciled":False}
+            return processed
+        self._last_reconcile = now_reconcile
         # Reconcile ALL previously discovered sessions, including those older
         # than the lookback window. Otherwise stale 'running' records persist.
         # Activity-based classification is not proof an OS process is still alive.
@@ -361,6 +369,11 @@ class SessionObserver:
                 self._emit({"run_id": rid, "type": "run.status",
                             "status": "idle",
                             "external_id": f"observer-idle:{rid}:{int(modified)}"})
+        duration_ms=(time.perf_counter()-scan_started)*1000
+        perf.observe("observer.scan_ms",duration_ms)
+        perf.count("observer.files_scanned",processed)
+        self.scan_summary={"scanned":processed,"by_provider":by_provider,
+                           "duration_ms":round(duration_ms,2),"reconciled":True}
         return processed
 
     def _process(self, provider, path, session_id, row):
