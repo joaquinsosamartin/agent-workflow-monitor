@@ -51,10 +51,7 @@ If no Codex session ID is known, omit `--orchestrator-session`.
 If the delegated Claude session ID is known, pass it via `--session`.
 Do not guess either identifier.
 
-The wrapper waits for the child and records its exit code. The selected
-phase is moved to `running` at launch and then to `completed` or
-`failed` based on exit code, provided it has not been reassigned in
-the meantime.
+The wrapper waits for the child and records its exit code. The selected phase becomes `running` on launch. A successful exit completes the execution record but leaves the phase `waiting` for explicit acceptance; a failed exit marks the phase `failed` if its ownership has not changed.
 
 ## Inspect the result
 
