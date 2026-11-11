@@ -110,6 +110,26 @@ class Store:
         with self.lock:
             return [dict(x) for x in self.conn.execute('SELECT * FROM events WHERE run_id=? AND seq>? ORDER BY seq LIMIT ?', (run_id,after,limit))]
 
+    def set_run_title(self, run_id, title, expected_prefix=None):
+        with self.lock, self.conn:
+            if expected_prefix:
+                self.conn.execute(
+                    "UPDATE runs SET title=?,updated_at=? WHERE id=? AND title LIKE ?",
+                    (title,utc(),run_id,expected_prefix+"%")
+                )
+            else:
+                self.conn.execute("UPDATE runs SET title=?,updated_at=? WHERE id=?",
+                                  (title,utc(),run_id))
+
+    def set_node_title(self, node_id, title, expected_prefix=None):
+        with self.lock, self.conn:
+            if expected_prefix:
+                self.conn.execute("UPDATE nodes SET title=?,updated_at=? WHERE id=? AND title LIKE ?",
+                                  (title,utc(),node_id,expected_prefix+"%"))
+            else:
+                self.conn.execute("UPDATE nodes SET title=?,updated_at=? WHERE id=?",
+                                  (title,utc(),node_id))
+
     def recent_events(self, run_id, limit=40):
         with self.lock:
             rows = self.conn.execute(
