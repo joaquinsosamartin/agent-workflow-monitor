@@ -466,3 +466,61 @@ orchestration, and it does not intercept an already-running Codex session.
 The Codex app-server and SDK have richer event streams for a future
 fully automatic agent-orchestration adapter. No commands, prompts or
 agent outputs are persisted by the wrapper. No GitHub Actions.
+
+## Performance profile and diagnostics
+
+The monitor now provides bounded in-memory diagnostics at
+`GET http://127.0.0.1:8765/api/performance`:
+
+- Current Python process RSS, user/system CPU time, thread count
+- Rolling p50/p95/max for JSONL scans, SQLite event writes, API work,
+  and Claude Mod-reported hook overhead
+- Counters for scanned transcript files, Mod events and API timeouts
+- Effective JSONL polling interval and last scan duration
+
+Performance samples are kept in a ring buffer in memory (default 300
+samples per measurement), and **are not stored** in SQLite.
+
+### Configurable Windows settings
+
+Run in PowerShell before starting the Python monitor:
+
+```powershell
+$env:AGENT_MONITOR_POLL_SECONDS = "5"
+$env:AGENT_MONITOR_DASHBOARD_SECONDS = "10"
+$env:AGENT_MONITOR_METRIC_SAMPLES = "300"
+.\.venv\Scripts\python.exe -m monitor serve
+```
+
+JSONL tailing now defaults to **5 seconds**, while the more expensive
+historical reconciliation runs at most once per minute. The browser
+pauses dashboard polling while hidden, with only one polling request in
+flight at a time, and reads the refresh interval from the backend.
+
+The Claude Mod queues up to **100** event snapshots, flushes up to **40**
+at a time after **500 milliseconds**, and retries failed sends after
+**5 seconds**. It uses the supported `$.clock.after` API, not global
+`setTimeout` (which is unavailable in Claude Mods). The panel reports
+queued, sent and dropped event counts. If the backend stays unavailable,
+old buffered events are discarded rather than allowing unlimited
+memory usage. The Mod sends only metadata, not prompts or tool bodies.
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8765/api/performance |
+    ConvertTo-Json -Depth 10
+```
+
+For a local benchmark, take baseline measurements with the monitor
+idle, then run a real Codex/Claude workflow with several agents and
+compare RSS, CPU-time deltas, p95 latencies, event throughput and
+dropped events. Neither the p95 target (under 10ms for synchronous
+hook overhead) nor low idle CPU usage is verified yet.
+
+Tests (local, no GitHub Actions):
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Performance telemetry is process-local, does not use a cloud provider,
+and is reset on each restart.
