@@ -110,6 +110,14 @@ class Store:
         with self.lock:
             return [dict(x) for x in self.conn.execute('SELECT * FROM events WHERE run_id=? AND seq>? ORDER BY seq LIMIT ?', (run_id,after,limit))]
 
+    def recent_events(self, run_id, limit=40):
+        with self.lock:
+            rows = self.conn.execute(
+                'SELECT * FROM events WHERE run_id=? ORDER BY seq DESC LIMIT ?',
+                (run_id, min(max(limit, 1), 200))
+            ).fetchall()
+            return [dict(x) for x in rows]
+
     def snapshot(self, run_id):
         with self.lock:
             row=self.conn.execute('SELECT * FROM runs WHERE id=?',(run_id,)).fetchone()
