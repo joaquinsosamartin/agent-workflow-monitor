@@ -64,7 +64,7 @@ h1{font-size:27px;letter-spacing:-.7px;margin:15px 0 5px}.header{display:flex;al
 <div class="eyebrow">EJECUCIONES ABIERTAS</div><div id="process-tree"></div>
 <div id="runs"></div>
 <button class="btn" id="demo">＋ Crear ejecución de demostración</button><p class="muted">SQLite local · SSE · Sin cloud</p>
-</aside><main id="view"><div class="empty">Selecciona una ejecución o crea una demostración.</div></main></div>
+</aside><main id="view"><div class="empty">Selecciona una ejecución abierta en el árbol de la izquierda para ver sus detalles.</div></main></div>
 <script>
 let key="",selected="",stream=null,snapshot=null,inactiveExpanded=false,historyExpandedInSidebar=false;
 let lastRunSignature="",lastSnapshotSignature="",refreshTimer=null,historyExpanded=false,refreshing=false;
@@ -217,14 +217,14 @@ function renderProcessTree(payload){
    const row=el("div","tree-node "+(p.provider==="codex"?"primary":"claude")+(detailSelection.type==="process"&&detailSelection.id===p.pid?" is-selected":""));
    const top=el("div","tree-row");
    const hasChildren=(p.children||[]).length>0;
-   // Expanded by default for Codex roots; otherwise keep the user's choice.
-   const expanded=processTreeOpened.has(p.pid)||(!processTreeOpened.has("closed:"+p.pid)&&depth===0&&p.provider==="codex");
+   // Keep agent branches collapsed until explicitly requested.
+   const expanded=processTreeOpened.has(p.pid);
    const toggle=el("button","tree-toggle",hasChildren?(expanded?"▾":"▸"):"•");
    toggle.disabled=!hasChildren;
    toggle.setAttribute("aria-expanded",String(expanded&&hasChildren));
    toggle.onclick=()=>{
-    if(expanded){processTreeOpened.delete(p.pid);processTreeOpened.add("closed:"+p.pid)}
-    else{processTreeOpened.add(p.pid);processTreeOpened.delete("closed:"+p.pid)}
+    if(expanded)processTreeOpened.delete(p.pid);
+    else processTreeOpened.add(p.pid);
     treeSignature="";
     renderProcessTree(payload)
    };
