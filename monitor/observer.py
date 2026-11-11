@@ -85,6 +85,8 @@ class SessionObserver:
         self.stop_event = threading.Event()
         self.thread = None
         self.last_errors = {}
+        self.file_stats = {}
+        self.scan_summary = {"scanned": 0, "by_provider": {}}
         with self.store.lock, self.store.conn:
             self.store.conn.executescript("""
                 CREATE TABLE IF NOT EXISTS observer_files (
@@ -213,42 +215,92 @@ class SessionObserver:
         return path.stem
 
     def _scan_file(self, provider, path):
+        """Incrementally ingest one transcript; record failures without blocking other files."""
         session_id = self._session_id(provider, path)
+        rid = stable("run", provider, session_id)
         existing = self._offset(path)
+        processed = 0
+        invalid = 0
         try:
             size = path.stat().st_size
             if existing > size:
-                existing = 0  # log truncated/replaced
+                existing = 0
             with path.open("rb") as f:
+                # Codex sessions begin with session_meta. Bootstrap a visible
+                # session even if subsequent event records are incomplete.
+                if provider == "codex":
+                    first = f.readline(MAX_RECORD_BYTES + 1)
+                    try:
+                        header = json.loads(first)
+                        if (isinstance(header, dict)
+                                and header.get("type") == "session_meta"
+                                and isinstance(header.get("payload"), dict)):
+                            metadata = header["payload"]
+                            cwd = metadata.get("cwd") or ""
+                            rid = self._ensure_run(provider, session_id, cwd)
+                            self._ensure_node(rid, "session", "Codex CLI session",
+                                              "Codex", "codex")
+                        else:
+                            self.last_errors[str(path)] = "Codex file missing session_meta header"
+                    except (ValueError, TypeError):
+                        self.last_errors[str(path)] = "Invalid Codex session_meta header"
+                    f.seek(0)
                 f.seek(existing)
-                # Read complete lines only. Leave incomplete trailing JSON for next poll.
-                # Limit per-file work per scan to avoid starving active sessions.
                 for _ in range(150):
                     start = f.tell()
                     line = f.readline(MAX_RECORD_BYTES + 1)
                     if not line:
                         break
                     if len(line) > MAX_RECORD_BYTES:
-                        # Too large: avoid repeatedly rereading it.
-                        if line.endswith(b"\n"):
-                            self._save_offset(path, provider, stable("run",provider,session_id), f.tell())
+                        self.last_errors[str(path)] = "Oversized transcript record"
+                        if line.endswith(b"\\n"):
+                            self._save_offset(path, provider, rid, f.tell())
                         break
-                    if not line.endswith(b"\n"):
+                    if not line.endswith(b"\\n"):
+                        # Leave incomplete trailing JSON for the next poll.
                         break
                     try:
-                        item = json.loads(line)
-                        self._process(provider, path, session_id, item)
-                    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, KeyError, ValueError):
-                        log.debug("Skipped malformed %s record at %s", provider, start)
-                    self._save_offset(path, provider, stable("run",provider,session_id), f.tell())
-        except (PermissionError, FileNotFoundError, OSError) as ex:
-            self.last_errors[str(path)] = str(ex)
+                        record = json.loads(line)
+                    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError):
+                        invalid += 1
+                        self._save_offset(path, provider, rid, f.tell())
+                        continue
+                    try:
+                        self._process(provider, path, session_id, record)
+                        processed += 1
+                        self.last_errors.pop(str(path), None)
+                    except Exception as exc:
+                        invalid += 1
+                        self.last_errors[str(path)] = (
+                            f"{type(exc).__name__}: {str(exc)[:180]}")
+                        log.warning("Skipped %s record at byte %d: %s", provider, start, exc)
+                    finally:
+                        # Never block a whole session because one event was malformed.
+                        self._save_offset(path, provider, rid, f.tell())
+            self.file_stats[str(path)] = {
+                "provider": provider, "run_id": rid,
+                "size": size, "offset": self._offset(path),
+                "processed_this_scan": processed, "invalid_this_scan": invalid,
+                "error": self.last_errors.get(str(path)),
+            }
+        except (PermissionError, FileNotFoundError, OSError) as exc:
+            self.last_errors[str(path)] = f"{type(exc).__name__}: {str(exc)[:180]}"
+            self.file_stats[str(path)] = {
+                "provider": provider, "run_id": rid,
+                "error": self.last_errors[str(path)]}
 
     def scan_once(self):
         processed = 0
+        by_provider = {}
         for provider, path in self._files():
-            self._scan_file(provider, path)
-            processed += 1
+            try:
+                self._scan_file(provider, path)
+                processed += 1
+                by_provider[provider] = by_provider.get(provider, 0) + 1
+            except Exception as exc:
+                self.last_errors[str(path)] = f"{type(exc).__name__}: {str(exc)[:180]}"
+                log.exception("Unexpected observer error reading %s", path)
+        self.scan_summary = {"scanned": processed, "by_provider": by_provider}
         # Reconcile ALL previously discovered sessions, including those older
         # than the lookback window. Otherwise stale 'running' records persist.
         # Activity-based classification is not proof an OS process is still alive.
