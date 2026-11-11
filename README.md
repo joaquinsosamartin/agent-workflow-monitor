@@ -217,3 +217,26 @@ git pull
 ```
 
 Después abre `http://127.0.0.1:8765/api/processes` y `http://127.0.0.1:8765/api/observer`. No publiques datos completos de rutas o PID si no quieres compartir detalles de tu equipo.
+
+## Codex sessions not visible on Windows — diagnostic and fix
+
+If `/api/processes` reports Codex processes but the left sidebar shows only Claude:
+
+1. A Codex `task_complete` is **completion of a turn, not the entire session**. The observer now keeps the run available and repairs old incorrect states without deleting history.
+2. A malformed line in one rollout file no longer stops discovery of subsequent lines or files.
+3. A recognized `session_meta` header creates a visible Codex session immediately, with the project inferred from its Windows working directory.
+4. The observer endpoint now exposes `last_scan.by_provider`, `ingested` (distinct sessions and files), and `failing_files`. It does not expose the raw transcript.
+5. Unmatched Codex/Claude processes appear **above** historical sessions. Claude subprocesses with a known parent CLI process are visually grouped; these links are process relationships only, not authenticated task delegation.
+
+Update locally (no GitHub Actions are configured):
+
+```powershell
+cd C:\git\agent-workflow-monitor
+git pull
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m monitor serve
+```
+
+Restart the old server before using the new version, and refresh the browser with Ctrl+F5. Then inspect `http://127.0.0.1:8765/api/observer` and `http://127.0.0.1:8765/api/processes`.
+
+**Remaining limitation:** starting Codex normally does not expose its session UUID in the process command line. The process may be visible even if its JSONL is not current or its session cannot be linked; this cannot be safely resolved by matching similar timestamps alone. Showing “Codex orchestrates these two Claude agents” requires correlated launch events/trace IDs or explicit instrumentation.
