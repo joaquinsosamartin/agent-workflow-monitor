@@ -25,6 +25,14 @@ class PerformanceTests(unittest.TestCase):
         self.assertEqual(result["counters"]["event.accepted"],2)
         self.assertEqual(result["latencies"]["operation.ms"]["samples"],1)
 
+    def test_dropped_event_counter_is_idempotent(self):
+        metrics=Performance()
+        metrics.report_cumulative("mod.events_dropped","session-1",4)
+        metrics.report_cumulative("mod.events_dropped","session-1",4)
+        metrics.report_cumulative("mod.events_dropped","session-1",6)
+        metrics.report_cumulative("mod.events_dropped","session-2",3)
+        self.assertEqual(metrics.snapshot()["counters"]["mod.events_dropped"],9)
+
     def test_negative_durations_are_clamped(self):
         metrics=Performance()
         metrics.observe("invalid.ms",-15)
