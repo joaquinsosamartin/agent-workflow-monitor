@@ -451,7 +451,10 @@ If you know the actual Codex orchestrator session ID, pass
 
 A Claude Mod `/workflow` panel can display the executor, orchestrator,
 timestamps and exit status beneath an expanded phase. This data is
-separate from token-based cost accounting.
+separate from token-based cost accounting. A successful subprocess exit
+finishes its **execution record**, but the phase stays in **waiting** until
+an explicit acceptance event marks it completed; a nonzero exit marks
+an unchanged phase failed.
 
 Install the optional Codex skill from
 `integrations/codex/skills/agent-workflow-delegate/SKILL.md` using
