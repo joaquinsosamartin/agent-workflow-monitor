@@ -5,7 +5,7 @@ Never associate independent processes by title, project, or creation time.
 """
 from __future__ import annotations
 
-def build_process_tree(processes, relationships, runs):
+def build_process_tree(processes, relationships, runs, manual_links=None):
     by_pid = {}
     for p in processes:
         pid = p.get("pid")
@@ -34,7 +34,11 @@ def build_process_tree(processes, relationships, runs):
 
     # If a process is both a parent and child, use the closest observed
     # ancestor only, with deterministic precedence for duplicate records.
-    candidates = sorted(relationships, key=lambda r: (r.get("depth", 999), r.get("child_pid", 0)))
+    candidates = [
+        {"parent_pid": link["parent_pid"], "child_pid": link["child_pid"],
+         "relation": "user_confirmed", "depth": 0}
+        for link in (manual_links or [])
+    ] + sorted(relationships, key=lambda r: (r.get("depth", 999), r.get("child_pid", 0)))
     attached = set()
     for link in candidates:
         parent = link.get("parent_pid")
