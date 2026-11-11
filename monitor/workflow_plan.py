@@ -113,8 +113,18 @@ def upsert_plan(store, data: PlanInput):
                     plan_id,id,parent_id,title,provider,agent_id,status,phase_order,updated_at
                 ) VALUES(?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(plan_id,id) DO UPDATE SET
-                    title=excluded.title, provider=excluded.provider,
-                    agent_id=excluded.agent_id,phase_order=excluded.phase_order
+                    title=excluded.title,
+                    provider=CASE WHEN EXISTS(
+                        SELECT 1 FROM workflow_phase_events e
+                        WHERE e.plan_id=workflow_phases.plan_id
+                          AND e.phase_id=workflow_phases.id
+                    ) THEN workflow_phases.provider ELSE excluded.provider END,
+                    agent_id=CASE WHEN EXISTS(
+                        SELECT 1 FROM workflow_phase_events e
+                        WHERE e.plan_id=workflow_phases.plan_id
+                          AND e.phase_id=workflow_phases.id
+                    ) THEN workflow_phases.agent_id ELSE excluded.agent_id END,
+                    phase_order=excluded.phase_order
             """, (plan_id,p.id,p.parent_id,p.title,p.provider,p.agent_id,p.status,
                   p.order,timestamp))
         # Parent links updated after all phases exist, preserving FK integrity.
