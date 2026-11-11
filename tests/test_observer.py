@@ -50,6 +50,26 @@ class ObserverTests(unittest.TestCase):
         self.observer._scan_file("claude",path)
         self.assertEqual(len(self.store.event_list(rid)),event_count)
 
+    def test_session_titles_and_activity_summary(self):
+        from monitor.observer import short_title
+        sid="8bc10a98-7c89-4a0a-93e7-07457ac1a078"
+        path=self.root/".claude"/"projects"/"demo"/(sid+".jsonl")
+        self.append(path,
+            {"type":"user","uuid":"u1","cwd":"C:/src/customers","message":{
+                "role":"user","content":"Implementar autenticación para la API de clientes"}},
+            {"type":"assistant","uuid":"a1","message":{"id":"m1","content":[
+                {"type":"tool_use","id":"call1","name":"Task","input":{
+                    "description":"Revisar seguridad de los endpoints",
+                    "prompt":"Never store this delegated prompt"}}]}})
+        self.observer._scan_file("claude",path)
+        rid=stable("run","claude",sid)
+        snap=self.store.snapshot(rid)
+        self.assertEqual(snap["run"]["title"],"Implementar autenticación para la API de clientes")
+        self.assertTrue(any(n["title"]=="Delegar · Revisar seguridad de los endpoints" for n in snap["nodes"]))
+        self.assertNotIn("Never store this delegated prompt",str(self.store.event_list(rid)))
+        self.assertTrue(any(r["id"]==rid and r["activity"]["title"].startswith("Delegar") for r in self.store.run_list()))
+        self.assertEqual(short_title("Abre  varios\\narchivos"),"Abre varios archivos")
+
     def test_recent_events_are_newest_first_with_timestamps(self):
         rid=self.store.add_run("Timeline")
         for n in range(55):
