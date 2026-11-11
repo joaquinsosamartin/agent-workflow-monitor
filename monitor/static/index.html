@@ -88,8 +88,23 @@ const dateTime=value=>{
 };
 const compact=x=>x>=1000000?(x/1000000).toFixed(2)+"M":x>=1000?(x/1000).toFixed(1)+"K":String(x);
 const label=s=>({pending:"Pendiente",running:"En ejecución",completed:"Completado",failed:"Error",blocked:"Bloqueado",cancelled:"Cancelado",idle:"Inactiva"}[s]||s);
-const post=async(path,data)=>{const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json","X-Monitor-Key":key},body:JSON.stringify(data)});if(!r.ok)throw Error(await r.text());return r.json()};
-const get=async(path)=>{const r=await fetch(path);if(!r.ok)throw Error(await r.text());return r.json()};
+const post=async(path,data)=>{
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),8000);
+ try{
+  const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json","X-Monitor-Key":key},body:JSON.stringify(data),signal:controller.signal});
+  if(!r.ok)throw Error(path+" → HTTP "+r.status+" "+await r.text());
+  return await r.json();
+ }finally{clearTimeout(timeout)}
+};
+const get=async(path)=>{
+ const controller=new AbortController();
+ const timeout=setTimeout(()=>controller.abort(),8000);
+ try{
+  const r=await fetch(path,{signal:controller.signal,cache:"no-store"});
+  if(!r.ok)throw Error(path+" → HTTP "+r.status+" "+await r.text());
+  return await r.json();
+ }finally{clearTimeout(timeout)}
+};
 const usageSum=(rows)=>{let t=0,c=0,unknown=false;for(const u of rows){t+=u.input_tokens+u.output_tokens;if(u.cost_usd!=null)c+=Number(u.cost_usd);else unknown=true}return {tokens:t,cost:rows.every(u=>u.cost_usd==null)?null:c,unknown}};
 function cumulative(node,nodes,usage){const ids=[node.id];for(let i=0;i<ids.length;i++)ids.push(...nodes.filter(n=>n.parent_id===ids[i]).map(n=>n.id));return usageSum(usage.filter(u=>ids.includes(u.node_id)))}
 function txt(parent,tag,cls,value){const x=el(tag,cls,value);parent.append(x);return x}
