@@ -32,6 +32,7 @@ class ModEvent(BaseModel):
     context_tokens: int | None = Field(default=None,ge=0)
     context_window: int | None = Field(default=None,ge=0)
     hook_latency_ms: float | None = Field(default=None, ge=0, le=60000)
+    dropped_events: int = Field(default=0, ge=0)
 
 
 def ingest(store: Store, event: ModEvent) -> dict:
