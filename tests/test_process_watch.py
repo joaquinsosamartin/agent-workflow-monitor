@@ -37,6 +37,36 @@ class ProcessWatchTests(unittest.TestCase):
         self.assertEqual(result["process_relationships"][0]["parent_pid"], 700)
         self.assertEqual(result["process_relationships"][0]["child_pid"], 701)
 
+    def test_process_refresh_does_not_block_http_snapshot(self):
+        from threading import Event
+        import time
+        registry = ProcessRegistry(ttl_seconds=30)
+        started = Event()
+        finish = Event()
+        def slow_collect():
+            started.set()
+            finish.wait(timeout=3)
+            return ([{"pid":123,"ppid":0,"provider":"codex","session_id":None}],
+                    [], {123:0})
+        registry._collect = slow_collect
+        try:
+            first = registry.snapshot()
+            self.assertTrue(first["refreshing"])
+            self.assertTrue(started.wait(timeout=1))
+            # The refresh thread is still waiting, yet another HTTP caller
+            # receives a cached snapshot without waiting for psutil.
+            again = registry.snapshot()
+            self.assertTrue(again["refreshing"])
+            self.assertEqual(again["processes"], [])
+        finally:
+            finish.set()
+        for _ in range(100):
+            snap=registry.snapshot()
+            if not snap["refreshing"]:
+                break
+            time.sleep(.01)
+        self.assertEqual(snap["processes"][0]["pid"], 123)
+
     def test_only_explicit_matches_confirm_active(self):
         sid = "12345678-1111-2222-3333-123456789abc"
         registry = ProcessRegistry(ttl_seconds=300)
