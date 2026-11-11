@@ -82,6 +82,18 @@ def initialize(store):
                 phase_id TEXT NOT NULL, created_at TEXT NOT NULL,
                 PRIMARY KEY(plan_id,event_id)
             );
+            CREATE TABLE IF NOT EXISTS workflow_phase_history (
+                plan_id TEXT NOT NULL, phase_id TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                previous_provider TEXT NOT NULL, next_provider TEXT NOT NULL,
+                previous_agent_id TEXT NOT NULL, next_agent_id TEXT NOT NULL,
+                previous_session_id TEXT, next_session_id TEXT,
+                previous_status TEXT NOT NULL, next_status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(plan_id,event_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_phase_history
+                ON workflow_phase_history(plan_id,phase_id,created_at);
         """)
 
 
@@ -149,6 +161,15 @@ def update_phase(store, plan_id: str, phase_id: str, update: PhaseUpdate):
             "INSERT INTO workflow_phase_events VALUES(?,?,?,?)",
             (plan_id,update.event_id,phase_id,timestamp)
         )
+        store.conn.execute("""
+            INSERT INTO workflow_phase_history(
+                plan_id,phase_id,event_id,previous_provider,next_provider,
+                previous_agent_id,next_agent_id,previous_session_id,next_session_id,
+                previous_status,next_status,created_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (plan_id,phase_id,update.event_id,
+              phase["provider"],provider,phase["agent_id"],agent,
+              phase["session_id"],session,phase["status"],status,timestamp))
         store.conn.execute(
             "UPDATE workflow_plans SET updated_at=? WHERE id=?",
             (timestamp,plan_id)
@@ -167,7 +188,11 @@ def snapshot(store, plan_id: str):
             "SELECT * FROM workflow_phases WHERE plan_id=? ORDER BY phase_order,id",
             (plan_id,)
         )]
-        return {"plan":dict(plan),"phases":phases}
+        history=[dict(h) for h in store.conn.execute(
+            "SELECT * FROM workflow_phase_history WHERE plan_id=? ORDER BY created_at,event_id",
+            (plan_id,)
+        )]
+        return {"plan":dict(plan),"phases":phases,"history":history}
 
 
 def plans(store):
