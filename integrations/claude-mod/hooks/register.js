@@ -1,4 +1,4 @@
-import {sendSnapshot,bridgeStatus,listSharedWorkflows,loadSharedWorkflow} from "./bridge.js";
+import {sendSnapshot,bridgeStatus,listSharedWorkflows,loadSharedWorkflow,sendClaudeTask} from "./bridge.js";
 /* Claude Code Mod — local, read-only workflow view.
  * All hooks pass through Claude's ordinary behavior; no tools are intercepted.
  * This version draws its own Pane and shows only data exposed by the Mods API.
@@ -171,6 +171,40 @@ async function open($){
   const placement=await $.ui.open({id:PANE_ID,title:"Agent Workflow",focus:true});
   return placement;
 }
+function recordTaskChange($,e,outcome) {
+  // Only completed TaskCreate/TaskUpdate calls; no inferred progress from
+  // arbitrary tool invocations or file edits, and never affect Codex phases.
+  if(!state.selectedPlan||outcome?.isError||outcome?.deny)return;
+  const action=e.tool==="TaskCreate"?"created":e.tool==="TaskUpdate"?"updated":null;
+  if(!action)return;
+  const body=outcome?.result;
+  const taskId=action==="created"
+    ?(body?.task?.id??body?.taskId??body?.id)
+    :e.taskId;
+  if(typeof taskId!=="string"&&typeof taskId!=="number"){
+    state.error="TaskCreate: Claude no devolvió un ID estructurado";
+    return;
+  }
+  const taskIdString=String(taskId);
+  if(!taskIdString||taskIdString.length>128)return;
+  const subject=typeof e.subject==="string"?clean(e.subject,195):null;
+  // A successful TaskUpdate may omit a status and only change the owner.
+  const status=["pending","in_progress","completed","deleted"].includes(e.status)
+    ?e.status:null;
+  const owner=typeof e.owner==="string"?clean(e.owner,128):null;
+  const eventId=String(e.tool_use_id||(
+    action+":"+taskIdString+":"+state.toolCount)).slice(0,128);
+  const planId=state.selectedPlan;
+  void sendClaudeTask($,{
+    planId, taskId:taskIdString,action,subject,status,owner,
+    eventId:"claude-tool:"+eventId,
+  }).then(async()=>{
+    if(state.selectedPlan===planId)await loadPlans($);
+  }).catch(err=>{
+    state.error="Sincronización de tareas: "+clean(err?.message??err,95);
+    if(state.open)$.ui.invalidate("ui.render");
+  });
+}
 export function register(on){
   on("session.start",async($,e,next)=>{
     const result=await next(e);
@@ -213,7 +247,12 @@ export function register(on){
     state.lastTool=item.tool;
     state.tools=[...state.tools,item].slice(-MAX_TOOLS);
     if(state.open)$.ui.invalidate("ui.render");
-    return next(e);
+    const outcome=await next(e);
+    if(e.tool==="TaskCreate"||e.tool==="TaskUpdate"){
+      try {recordTaskChange($,e,outcome)}
+      catch(err){state.error="Task sync: "+clean(err?.message??err,100)}
+    }
+    return outcome;
   });
   on("ui.render",{component:"Pane",requestId:PANE_ID},($,e,next)=>draw($,e));
   on("ui.close",{id:PANE_ID},($,e,next)=>{
