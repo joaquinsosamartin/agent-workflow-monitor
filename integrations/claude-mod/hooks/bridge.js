@@ -46,10 +46,10 @@ export function bridgeStatus() {
 }
 function queueFlush($) {
   if(flushTimer!==null||flushing||!pending.length)return;
-  flushTimer=setTimeout(()=>{
+  flushTimer=$.clock.after(BATCH_DELAY_MS,()=>{
     flushTimer=null;
     void flush($);
-  },BATCH_DELAY_MS);
+  });
 }
 async function flush($) {
   if(flushing || !pending.length)return;
@@ -78,10 +78,10 @@ async function flush($) {
     flushing=false;
     // On failure, wait a bounded period rather than hammering localhost.
     if(pending.length){
-      flushTimer=setTimeout(()=>{
+      flushTimer=$.clock.after(lastError?5000:BATCH_DELAY_MS,()=>{
         flushTimer=null;
         void flush($);
-      },lastError?5000:BATCH_DELAY_MS);
+      });
     }
     try { $.ui.invalidate("ui.render"); } catch {}
   }
