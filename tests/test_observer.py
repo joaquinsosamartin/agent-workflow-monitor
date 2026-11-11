@@ -80,6 +80,21 @@ class ObserverTests(unittest.TestCase):
         self.assertIn("event 54",recent[0]["payload"])
         self.assertTrue(all(x["created_at"] for x in recent))
 
+    def test_stale_sessions_outside_lookback_are_marked_idle(self):
+        import time
+        sid="f6716c2f-6893-4949-9306-d83a0af176a1"
+        path=self.root/".claude"/"projects"/"demo"/(sid+".jsonl")
+        self.append(path,{"type":"user","uuid":"u1","message":{"content":"Test task"}})
+        self.observer._scan_file("claude",path)
+        rid=stable("run","claude",sid)
+        self.assertEqual(self.store.snapshot(rid)["run"]["status"],"running")
+        old=time.time()-24*3600
+        os.utime(path,(old,old))
+        # Old file no longer eligible for the discovery scan, but its
+        # stored observer path must still be reconciled.
+        self.observer.scan_once()
+        self.assertEqual(self.store.snapshot(rid)["run"]["status"],"idle")
+
     def test_codex_cumulative_token_usage_is_not_summed(self):
         path=self.root / ".codex" / "sessions" / "2026" / "11" / "11" / "rollout-test.jsonl"
         self.append(path,
