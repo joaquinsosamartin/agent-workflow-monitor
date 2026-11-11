@@ -26,7 +26,9 @@ button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid var(--
 .tree-name{background:transparent;border:0;color:#eaf2ff;cursor:pointer;text-align:left;font-weight:650;font-size:12px;overflow-wrap:anywhere;padding:0}
 .tree-meta{font-size:11px;color:#90a8c6;margin-left:27px;line-height:1.6}
 .tree-children{border-left:1px solid #435775;margin-left:10px;padding-left:9px}
-.tree-pill{color:#7fd9b2;font-size:10px}.tree-hint{font-size:11px;color:#829bbd;margin:8px 0}
+.tree-pill{color:#7fd9b2;font-size:10px}
+.tree-action{background:#1c3b5a;border:1px solid #44658a;color:#dbeaff;border-radius:7px;padding:5px 7px;font-size:10px;cursor:pointer;margin-top:6px}
+.tree-selector{width:100%;background:#10253b;color:#e9f1ff;border:1px solid #406287;border-radius:7px;padding:6px;margin-top:5px;font-size:11px}.tree-hint{font-size:11px;color:#829bbd;margin:8px 0}
 .run.waiting-run{border-left:4px solid #dcb977;background:#322d24;padding-left:10px}
 .run.recent-run{border-left:3px solid #78aaf1;background:#192840;padding-left:11px}
 .run.active-run .run-state{color:var(--green)}.run.waiting-run .run-state{color:#f0cf8d}.run.recent-run .run-state{color:#a8c9ff}.run-state{display:inline-block;font-size:11px;color:var(--muted);margin-top:6px}
@@ -164,6 +166,10 @@ function renderProcessTree(payload){
  treeSignature=sig;
  box.replaceChildren();
  const roots=payload.roots||[];
+ const allProcesses=[];
+ const collect=(list)=>list.forEach(p=>{allProcesses.push(p);collect(p.children||[])});
+ collect(roots);
+ const codexProcesses=allProcesses.filter(p=>p.provider==="codex");
  if(!roots.length){txt(box,"p","tree-hint","No se han detectado procesos CLI");return}
  txt(box,"div","tree-header",payload.process_count+" procesos CLI · "+payload.linked_sessions+" sesiones vinculadas");
  const treeNodes=(items,parent,depth=0)=>{
@@ -193,7 +199,39 @@ function renderProcessTree(payload){
     txt(meta,"div","",p.session.title);
     if(p.session.activity)txt(meta,"div","",p.session.activity.title);
    }else txt(meta,"div","","Sesión sin vincular");
-   if(p.relation)txt(meta,"div","",p.relation==="process_parent"?"↳ Proceso hijo":"↳ Proceso descendiente");
+   if(p.relation)txt(meta,"div","",p.relation==="user_confirmed"?"↳ Vinculación confirmada manualmente":p.relation==="process_parent"?"↳ Proceso hijo":"↳ Proceso descendiente");
+   if(p.provider==="claude"&&codexProcesses.length){
+     if(p.relation==="user_confirmed"){
+       const unlink=el("button","tree-action","Desvincular de Codex");
+       unlink.onclick=async()=>{
+         try{await fetch("/api/topology/links/"+p.pid,{method:"DELETE",headers:{"X-Monitor-Key":key}})
+             .then(x=>{if(!x.ok)throw Error("No se ha podido desvincular")});
+             treeSignature="";await refreshProcessTree();
+         }catch(e){alert(e.message)}
+       };
+       meta.append(unlink);
+     }else if(!p.relation){
+       const assign=el("button","tree-action","Asociar manualmente a Codex");
+       assign.onclick=()=>{
+         assign.remove();
+         const choices=el("select","tree-selector");
+         for(const codex of codexProcesses){
+           const option=el("option","", "Codex · PID "+codex.pid);
+           option.value=String(codex.pid);
+           choices.append(option);
+         }
+         const confirm=el("button","tree-action","Confirmar asociación");
+         confirm.onclick=async()=>{
+           try{
+             await post("/api/topology/links",{parent_pid:Number(choices.value),child_pid:p.pid});
+             treeSignature="";await refreshProcessTree();
+           }catch(e){alert(e.message)}
+         };
+         meta.append(choices,confirm);
+       };
+       meta.append(assign);
+     }
+   }
    if(hasChildren)txt(meta,"div","",p.children.length+" procesos descendientes directos en el árbol");
    row.append(meta);wrap.append(row);
    if(expanded&&hasChildren){
@@ -205,7 +243,7 @@ function renderProcessTree(payload){
   }
  };
  treeNodes(roots,box);
- txt(box,"div","tree-hint","Relaciones de procesos Windows. La orquestación entre agentes requiere correlación adicional.");
+ txt(box,"div","tree-hint","Jerarquía de procesos: automática cuando existe parentesco; puedes vincular manualmente Claude a Codex. Esto no confirma por sí solo una delegación de tareas.");
 }
 async function refreshProcessTree(){
  try{renderProcessTree(await get("/api/topology"))}
