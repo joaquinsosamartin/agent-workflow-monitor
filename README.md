@@ -366,3 +366,55 @@ The Mod's plan view is **read-only** in this iteration: it does not
 automatically infer completion from file edits or tool names. Further work
 will add explicit `TaskCreate/TaskUpdate` mapping and adapters for Codex/Orca.
 No GitHub Actions are configured or run.
+
+## Provider handoffs and Claude Task synchronization
+
+The workflow core now preserves an **append-only phase audit** in
+`workflow_phase_history`. Each event records the previous and next
+provider, agent, session, status and UTC timestamp. Re-importing an old
+plan no longer resets ownership after a handoff has been recorded.
+
+The Claude Code Mod now observes **successful** `TaskCreate` and
+`TaskUpdate` tool calls. This integration is deliberately opt-in per
+plan: select the shared plan using `/workflow` before asking Claude to
+create or update tasks. A successful TaskCreate with a structured task ID
+adds a new `claude-task-<hash>` phase to that selected plan; later updates
+change the same phase's status, subject and owner. Only that Claude-owned
+task may be updated through the task import endpoint. Existing Codex/Orca
+phases are not automatically reassigned.
+
+The phase history is returned from `GET /api/workflows/{id}` and appears
+under an expanded phase in the Mod. The generic cross-provider handoff API
+remains `POST /api/workflows/{id}/phases/{phase_id}`. Task ingestion uses
+`POST /api/integrations/claude/task-events` with the existing local API key.
+
+### Test a mixed-provider plan and Claude tasks
+
+1. `git pull`, stop the old FastAPI process, and restart with
+   ` .\.venv\Scripts\python.exe -m monitor serve ` from the project root.
+2. Start a **new** Claude session with
+   `claude --plugin-dir .\integrations\claude-mod`.
+3. Enter `/workflow`, select your shared plan, and expand the phases.
+4. Ask Claude to create a new task in its task list and mark it in
+   progress/completed using its TaskCreate/TaskUpdate tools.
+5. Click **Actualizar** in the Mod, then inspect
+   `http://127.0.0.1:8765/api/workflows/<your-plan-id>`.
+
+An example mixed plan is `examples/multi-agent-workflow.json` and
+the root README contains the PowerShell command to import it.
+
+**Limits:** Claude Mod tool input/output shapes vary by release.
+The adapter only accepts a task ID from a structured successful tool
+result, never from guessed text. If your version exposes a different
+shape, the Mod may display a diagnostic and the new task will not be
+imported. This is not a substitute for Codex or Orca instrumentation:
+they must send their own phase updates. No tokens or costs are inferred
+from task status, and Claude's context-window occupancy remains separate
+from billable usage.
+
+Run tests locally:
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+No GitHub Actions workflows were added or executed.
