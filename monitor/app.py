@@ -241,6 +241,37 @@ async def claude_task_event(event:ClaudeTaskEvent):
     except ValueError as exc:
         raise HTTPException(status_code=409,detail=str(exc))
 
+from .workflow_delegation import (
+    DelegationStart, DelegationFinish, initialize as init_delegations,
+    start as start_delegation, finish as finish_delegation,
+    list_for_plan as list_delegations
+)
+init_delegations(store)
+
+@app.post('/api/workflows/{plan_id}/phases/{phase_id}/executions',dependencies=[Depends(authorize)])
+async def begin_phase_execution(plan_id: str, phase_id: str, data: DelegationStart):
+    try:
+        return await bounded(start_delegation,store,plan_id,phase_id,data,
+                             operation="delegation start")
+    except KeyError as exc:
+        raise HTTPException(status_code=404,detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409,detail=str(exc))
+
+@app.post('/api/workflows/executions/{execution_id}/finish',dependencies=[Depends(authorize)])
+async def finish_phase_execution(execution_id: str, data: DelegationFinish):
+    try:
+        return await bounded(finish_delegation,store,execution_id,data,
+                             operation="delegation finish")
+    except KeyError as exc:
+        raise HTTPException(status_code=404,detail=str(exc))
+
+@app.get('/api/workflows/{plan_id}/executions')
+async def get_phase_executions(plan_id: str):
+    if await bounded(plan_snapshot,store,plan_id,operation="workflow lookup") is None:
+        raise HTTPException(status_code=404,detail="Workflow not found")
+    return await bounded(list_delegations,store,plan_id,operation="delegation list")
+
 @app.get('/api/dashboard')
 async def dashboard():
     return await bounded(build_dashboard, operation="dashboard")
