@@ -267,3 +267,35 @@ git pull
 ```
 
 Actualiza el navegador con `Ctrl+F5` y consulta también `http://127.0.0.1:8765/api/topology`. Si los nodos Codex están presentes pero no sus sesiones, revisa el JSON de `/api/observer` para diagnosticar registros JSONL.
+
+## HTTP requests remaining Pending (Windows)
+
+Expected: `GET /api/runs/{id}/events` stays open, because it is Server-Sent Events (SSE).
+
+Unexpected: a second `/api/dashboard`, `/api/topology`, or a `POST /api/topology/links` remaining pending indefinitely. The November 11 fix addresses this by:
+
+- Refreshing Windows process information on a background thread; HTTP requests return the last cached process snapshot without waiting for `psutil.process_iter`.
+- Caching the PID ancestry map instead of walking Windows processes synchronously on every HTTP request.
+- Returning an HTTP 503 with a logged timeout after 5 seconds for a dashboard/topology/link operation blocked by another lock.
+- Aborting browser JSON requests after 8 seconds (SSE connections are deliberately unaffected).
+
+After updating, restart Agent Monitor (not just refresh the tab), then measure responses:
+
+```powershell
+cd C:\git\agent-workflow-monitor
+git pull
+.\.venv\Scripts\python.exe -m monitor serve
+```
+
+```powershell
+foreach ($url in @('/api/health','/api/dashboard','/api/dashboard','/api/topology')) {
+  try {
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    $reply = Invoke-WebRequest "http://127.0.0.1:8765$url" -TimeoutSec 8 -UseBasicParsing
+    $watch.Stop()
+    "$url - HTTP $($reply.StatusCode) - $($watch.ElapsedMilliseconds) ms"
+  } catch { "$url - ERROR: $($_.Exception.Message)" }
+}
+```
+
+If `/api/health` is fast but dashboard returns 503, provide the error from the server terminal; this narrows the issue to the database/observer instead of the HTTP event loop. No GitHub Actions workflow is configured or triggered.
