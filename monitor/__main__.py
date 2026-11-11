@@ -48,8 +48,22 @@ def main():
     wrapped.add_argument('--session',default=None)
     wrapped.add_argument('--port',type=int,default=8765)
     wrapped.add_argument('command',nargs=argparse.REMAINDER)
+    delegated=sub.add_parser('delegate',help='Run one explicitly assigned workflow phase')
+    delegated.add_argument('--plan',required=True)
+    delegated.add_argument('--phase',required=True)
+    delegated.add_argument('--provider',choices=['codex','claude','orca','system','other'],required=True)
+    delegated.add_argument('--agent',required=True)
+    delegated.add_argument('--orchestrator-provider',choices=['codex','claude','orca','system','other'])
+    delegated.add_argument('--orchestrator-session')
+    delegated.add_argument('--session',help='Known delegated session ID (do not guess)')
+    delegated.add_argument('--port',type=int,default=8765)
+    delegated.add_argument('command',nargs=argparse.REMAINDER)
     args=p.parse_args()
     if args.cmd=='run': sys.exit(run_agent(args))
+    if args.cmd=='delegate':
+        from .workflow_delegate_cli import delegate
+        try: sys.exit(delegate(args))
+        except (OSError,ValueError) as exc: raise SystemExit(f'Delegation failed: {exc}')
     import uvicorn
     if args.cmd is None: args=p.parse_args(['serve'])
     if not args.no_browser:
