@@ -612,7 +612,7 @@ function plotSeries(target,title,points,series,unit="",derived=false){
    if(textContent!==undefined)node.textContent=String(textContent);
    svg.append(node);return node;
  }
- const values=series.flatMap(item=>points.map(p=>Number(p[item.key])).filter(Number.isFinite));
+ const values=series.flatMap(item=>points.map(p=>p[item.key]).filter(v=>v!==null&&v!==undefined).map(Number).filter(Number.isFinite));
  const upper=Math.max(1,...values)*1.12;
  const left=40,right=426,top=12,bottom=137;
  for(let i=0;i<=3;i++){
@@ -659,7 +659,7 @@ function performanceEvents(points){
  const last={};
  return points.map(p=>{
    const item={...p};
-   for(const key of ["mod_events_received","mod_events_written","api_timeouts"]){
+   for(const key of ["mod_events_received","mod_events_written","mod_events_dropped","api_timeouts"]){
      const value=Number(p[key]||0);
      // Counter resets on Python restart; never render negative rates.
      item[key+"_delta"]=last[key]===undefined?null:Math.max(0,value-last[key]);
@@ -703,6 +703,7 @@ async function refreshPerformance(){
     plotSeries(charts,"Eventos por intervalo",performanceEvents(points),[
       {key:"mod_events_received_delta",label:"Recibidos"},
       {key:"mod_events_written_delta",label:"Procesados"},
+      {key:"mod_events_dropped_delta",label:"Descartados"},
       {key:"api_timeouts_delta",label:"Timeouts"}],"");
   }
   const message=document.querySelector("#perf-message");
@@ -712,7 +713,7 @@ async function refreshPerformance(){
   const diagnostics=document.querySelector("#perf-diagnostics");diagnostics.replaceChildren();
   txt(diagnostics,"div","","Última muestra: "+(current.history?.last_sample||"Sin datos"));
   txt(diagnostics,"div","","Escaneo JSONL: "+current.observer?.poll_seconds+" s · Última duración: "+(current.observer?.last_scan?.duration_ms??"—")+" ms");
-  txt(diagnostics,"div","","Eventos descartados por los Mods: todavía no agregados globalmente (consultar el panel de Claude).");
+  txt(diagnostics,"div","","Eventos descartados notificados por Claude: "+(current.counters?.["mod.events_dropped"]??0)+" · Solo sesiones que envían telemetría.");
   if(current.history?.last_error)txt(diagnostics,"div","perf-error","Muestreo: "+current.history.last_error);
  }catch(err){
   document.querySelector("#perf-message").textContent="No se pudieron consultar las métricas: "+err.message;
