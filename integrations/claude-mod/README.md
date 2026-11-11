@@ -80,3 +80,23 @@ Run local Python tests:
 ```
 
 No GitHub Actions have been configured or run for this feature.
+
+## Provider-neutral vertical workflow (shared plans)
+
+The Mod can now query `GET /api/workflows` and display a selected
+plan's steps as an expandable vertical-style list with child steps,
+statuses and **provider/agent labels**. The plan itself is not owned by
+Claude: one phase may be executed by Codex, another by Claude, and another
+by Orca. Handoffs keep the phase identifier stable.
+
+Create the sample plan with the PowerShell commands in the repository
+README, restart the Python server to load the new API, then restart Claude
+Code and run `/workflow`. Choose a plan with the **Ver** button;
+expand a phase with `+`. Claude's own subagents and tool activity remain
+in a separate section.
+
+This view is currently **read-only**. Plan-state changes require explicit
+authenticated events from an agent integration; parsing arbitrary tool
+operations is not a reliable way to determine a phase's completion.
+The terminal Mod cannot use HTML/CSS from the web dashboard, so its stepper
+is rendered using native terminal components. No GitHub Actions.
