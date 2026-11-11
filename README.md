@@ -99,3 +99,59 @@ python -m unittest discover -s tests -v
 4. More accurate subagent tracing, session discovery and duration analytics.
 
 Current limitations: no native Orca/Deck plugin, Claude Mod or Codex plugin yet; no automatic discovery of running CLI sessions. This is an initial local MVP, not a production-hardened multi-user service.
+
+
+## Automatic local session discovery (v0.2)
+
+**Enabled by default when Agent Monitor starts.** No hooks, modifications to Claude/Codex settings, or changes to how you launch the CLIs are required.
+
+The collector reads **only new complete JSONL lines**, remembering byte offsets in SQLite:
+
+- Claude CLI: \`%USERPROFILE%\.claude\projects\...\*.jsonl\`, plus subagent JSONL files.
+- Codex CLI: \`%USERPROFILE%\.codex\sessions\YYYY\MM\DD\rollout-*.jsonl\`.
+- Custom roots: \`CLAUDE_CONFIG_DIR\` (parent of \`projects\`) and \`CODEX_HOME\` (parent of \`sessions\`).
+
+**Restart the server** after pulling updates:
+
+\`\`\`powershell
+cd C:\git\agent-workflow-monitor
+git pull
+# Ctrl+C in the old monitor terminal, then:
+.\.venv\Scripts\python.exe -m monitor serve
+\`\`\`
+
+To see the observer state, open:
+
+\`\`\`text
+http://127.0.0.1:8765/api/observer
+\`\`\`
+
+Then open Claude Code / Codex CLI as usual and send a prompt. New sessions appear in the left-hand list automatically, without wrapping the CLI process. Sessions with no transcript activity for two minutes are marked **idle**, not completed (idle is an inference from file inactivity).
+
+You can trigger an immediate scan with \`POST /api/observer/scan\` using the API key header. The poll interval defaults to 2 seconds; newly discovered records are visible on the dashboard within a few seconds.
+
+**Optional environment settings**:
+
+- \`AGENT_MONITOR_OBSERVE=0\` — turn off discovery.
+- \`AGENT_MONITOR_POLL_SECONDS=5\` — alter scan frequency.
+- \`AGENT_MONITOR_LOOKBACK_HOURS=24\` — discover files modified in the past 24 hours.
+
+The default lookback is **12 hours** and at most 250 recent transcript files are scanned per provider per cycle. Already discovered files resume from stored offsets across restarts.
+
+**Privacy:** input prompts, code, tool arguments, tool results, and message bodies are not stored. We retain the source session identifier, project name, tool name, status, usage counters, event metadata, and agent identifier. Tool call identifiers are kept locally in SQLite. The dashboard listens on loopback only. Avoid exposing the API to a network without additional authentication.
+
+**Accuracy and limitations:**
+
+- Claude transcript assistant messages can report model token counts. Costs are **unavailable**, because the transcript does not provide a verified price per message. Some message records represent updates of the same message ID; usage is upserted rather than summed as separate records.
+- Codex \`token_count.info.total_token_usage\` is cumulative for a session, so it replaces the previous snapshot instead of being added to it. Cache tokens are a subset of input tokens.
+- Costs per substep require actual correlated usage data. The observer does not allocate session totals to tool calls without evidence.
+- Formats of local JSONL transcripts are provider-internal and may change. Claude subagent support is best-effort.
+- Tool calls become substeps of a session; a Claude subagent has its own child node, which can contain nested tools. Up to 100 tool nodes are collected per parent.
+- Automatic task plans, explicit phase names from a SDD workflow, Codex multi-agent attribution, and historical cost estimates require future integrations.
+- This does not install a Claude Mod, Codex Plugin, or Orca sidebar plugin. Those remain independent planned adapters of the shared Python core.
+
+Test the observer with synthetic transcript files:
+
+\`\`\`powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+\`\`\`
