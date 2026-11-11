@@ -136,9 +136,12 @@ def finish(store, execution_id: str, data: DelegationFinish) -> dict:
             and phase["session_id"] == execution["session_id"]
         )
         if still_owner:
+            # Successful process exit is not evidence that acceptance
+            # criteria passed. Keep the phase awaiting explicit validation.
+            phase_status = "waiting" if data.exit_code == 0 else "failed"
             update_phase(
                 store, execution["plan_id"], execution["phase_id"],
-                PhaseUpdate(status=status,
+                PhaseUpdate(status=phase_status,
                             event_id="delegation:finish:" + sha256(execution_id.encode("utf-8")).hexdigest()),
             )
     return {
