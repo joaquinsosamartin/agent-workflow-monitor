@@ -193,6 +193,12 @@ def build_dashboard():
         "checked_at": processes["checked_at"],
     }
 
+from .mod_bridge import ModEvent, ingest as ingest_mod_event
+
+@app.post('/api/integrations/claude/events',dependencies=[Depends(authorize)])
+async def claude_mod_event(event:ModEvent):
+    return await bounded(ingest_mod_event, store, event, operation='Claude Mod ingest')
+
 @app.get('/api/dashboard')
 async def dashboard():
     return await bounded(build_dashboard, operation="dashboard")
