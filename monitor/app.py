@@ -95,12 +95,35 @@ async def observer_shutdown():
 
 @app.get('/api/observer')
 def observer_status():
-    from .observer import path_roots
-    return {'enabled': observer.thread is not None and observer.thread.is_alive(),
-            'roots': {name: str(path) for name,path in path_roots().items()},
-            'poll_seconds': observer.poll_seconds,
-            'lookback_hours': observer.max_age_seconds/3600,
-            'errors': dict(list(observer.last_errors.items())[-10:])}
+    from .observer import discovery_roots
+    import time
+    sources = []
+    for provider, root in discovery_roots():
+        count = 0
+        recent = 0
+        newest = None
+        if root.exists():
+            try:
+                for file in root.rglob('*.jsonl'):
+                    if not file.is_file() or (provider == 'codex' and not file.name.startswith('rollout-')):
+                        continue
+                    count += 1
+                    mtime = file.stat().st_mtime
+                    if time.time() - mtime < observer.max_age_seconds:
+                        recent += 1
+                    if newest is None or mtime > newest:
+                        newest = mtime
+            except OSError:
+                pass
+        sources.append({
+            'provider':provider,'path':str(root),'exists':root.is_dir(),
+            'jsonl_count':count,'recent_count':recent,'last_modified_epoch':newest
+        })
+    return {'enabled':observer.thread is not None and observer.thread.is_alive(),
+            'sources':sources,
+            'poll_seconds':observer.poll_seconds,
+            'lookback_hours':observer.max_age_seconds/3600,
+            'errors':dict(list(observer.last_errors.items())[-10:])}
 
 @app.post('/api/observer/scan',dependencies=[Depends(authorize)])
 def observer_scan():
@@ -133,6 +156,8 @@ def get_processes():
     return {
         "verified_sessions": processes["verified_sessions"],
         "detected_processes": len(processes["processes"]),
+        "processes_by_provider": processes["processes_by_provider"],
+        "process_relationships": processes["process_relationships"],
         "unmatched_processes": processes["unmatched_processes"],
         "checked_at": processes["checked_at"],
         "errors": processes["errors"],
