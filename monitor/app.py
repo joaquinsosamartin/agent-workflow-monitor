@@ -119,11 +119,24 @@ def observer_status():
             'provider':provider,'path':str(root),'exists':root.is_dir(),
             'jsonl_count':count,'recent_count':recent,'last_modified_epoch':newest
         })
+    with store.lock:
+        discovered = [dict(item) for item in store.conn.execute(
+            "SELECT provider,COUNT(DISTINCT run_id) AS sessions,"
+            " COUNT(*) AS files FROM observer_files GROUP BY provider"
+        )]
+    failures = [
+        {'provider':stat.get('provider'),'filename':Path(path).name,
+         'error':stat.get('error')}
+        for path,stat in observer.file_stats.items() if stat.get('error')
+    ]
     return {'enabled':observer.thread is not None and observer.thread.is_alive(),
             'sources':sources,
             'poll_seconds':observer.poll_seconds,
             'lookback_hours':observer.max_age_seconds/3600,
-            'errors':dict(list(observer.last_errors.items())[-10:])}
+            'last_scan':dict(observer.scan_summary),
+            'ingested':discovered,
+            'failing_files':failures[:20],
+            'error_count':len(observer.last_errors)}
 
 @app.post('/api/observer/scan',dependencies=[Depends(authorize)])
 def observer_scan():
