@@ -50,6 +50,16 @@ class ObserverTests(unittest.TestCase):
         self.observer._scan_file("claude",path)
         self.assertEqual(len(self.store.event_list(rid)),event_count)
 
+    def test_recent_events_are_newest_first_with_timestamps(self):
+        rid=self.store.add_run("Timeline")
+        for n in range(55):
+            self.store.save_event({"run_id":rid,"type":"log","message":f"event {n}"})
+        recent=self.store.recent_events(rid,limit=3)
+        self.assertEqual(len(recent),3)
+        self.assertEqual([x["seq"] for x in recent],sorted([x["seq"] for x in recent],reverse=True))
+        self.assertIn("event 54",recent[0]["payload"])
+        self.assertTrue(all(x["created_at"] for x in recent))
+
     def test_codex_cumulative_token_usage_is_not_summed(self):
         path=self.root / ".codex" / "sessions" / "2026" / "11" / "11" / "rollout-test.jsonl"
         self.append(path,
