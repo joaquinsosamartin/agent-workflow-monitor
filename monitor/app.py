@@ -76,7 +76,7 @@ def authorize(x_monitor_key: str|None=Header(default=None)):
     if not x_monitor_key or not hmac.compare_digest(x_monitor_key,KEY):
         raise HTTPException(401,'Invalid monitor key')
 
-app=FastAPI(title='Agent Workflow Monitor',version='0.2.0')
+app=FastAPI(title='Agent Workflow Monitor',version='0.3.1')
 
 # Local transcript observation is read-only and requires no provider hooks.
 # Disable with AGENT_MONITOR_OBSERVE=0.
@@ -143,11 +143,17 @@ def observer_scan():
     return {'files_scanned': observer.scan_once()}
 
 
+@app.get('/api/health')
+async def health():
+    # No SQLite or psutil calls: distinguishes event-loop responsiveness
+    # from slow database/process-scanning endpoints.
+    return {'status':'ok','version':'0.3.1'}
+
 @app.get('/')
 def index(): return FileResponse(STATIC/'index.html')
 
 @app.get('/api/bootstrap')
-def bootstrap(): return {'key':KEY,'version':'0.1.0'}
+def bootstrap(): return {'key':KEY,'version':'0.3.1'}
 
 def classified_runs():
     runs = store.run_list()
