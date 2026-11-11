@@ -524,3 +524,57 @@ Tests (local, no GitHub Actions):
 
 Performance telemetry is process-local, does not use a cloud provider,
 and is reset on each restart.
+
+## Performance dashboard — historical charts
+
+The web UI now includes a **Performance** tab next to **Ejecuciones**.
+It shows CPU utilization of the Python backend (percentage of one logical
+CPU), resident RAM, rolling p95 latencies for JSONL scanning, SQLite
+event writes, dashboard requests and Claude hooks, and per-interval
+telemetry counts (received, processed, dropped as reported by the Mod,
+and API timeouts).
+
+Data comes from a separate local SQLite database:
+`~/.agent-monitor/performance.db`. This database contains **only
+infrastructure metrics**, not prompts, tool arguments or transcript data.
+The background sampler does not read process command lines or enumerate
+the entire system.
+
+- Default sample interval: **15 seconds**
+- Default history retention: **48 hours** (max configurable 168 hours)
+- Selected ranges: **1 / 6 / 24 / 48 hours**
+- History endpoint: `GET /api/performance/history?hours=6&limit=400`
+- Current diagnostic endpoint: `GET /api/performance`
+- Maximum returned points: **500**, subsampled in SQLite when necessary
+- The Performance view refreshes every 15 seconds only while visible.
+- Browser polling is paused when the page is hidden.
+
+Optional PowerShell settings before starting the server:
+
+```powershell
+$env:AGENT_MONITOR_PERF_INTERVAL_SECONDS="15"
+$env:AGENT_MONITOR_PERF_RETENTION_HOURS="48"
+$env:AGENT_MONITOR_POLL_SECONDS="5"
+$env:AGENT_MONITOR_DASHBOARD_SECONDS="10"
+.\.venv\Scripts\python.exe -m monitor serve
+```
+
+With the server running open `http://127.0.0.1:8765` and click
+**Performance**. Allow at least two sample intervals before expecting a
+meaningful CPU delta; a new installation has no historical samples until
+the collector runs. The history database survives server restarts, while
+the rolling in-memory p95 histograms reset on restart.
+
+**Interpretation:** CPU % is the backend process's usage relative to one
+logical CPU, not percent of the entire machine. The event chart shows
+changes between consecutive stored cumulative counters. Mod drops are
+only countable once a Claude Mod successfully reports its cumulative
+discarded-event total, so they may not include events lost while the
+Mod remained permanently disconnected. Neither average RAM nor CPU
+alone proves the absence of latency in Claude's hooks.
+
+Local tests (no cloud or GitHub Actions):
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
