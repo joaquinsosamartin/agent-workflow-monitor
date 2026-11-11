@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import threading
+from contextlib import closing
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,12 +46,15 @@ class PerformanceHistory:
         self.last_error=None
         self.last_sample=None
         self._iterations=0
+        self._initialized=False
 
     def _connect(self):
         self.path.parent.mkdir(parents=True,exist_ok=True)
         conn=sqlite3.connect(self.path, timeout=3)
         conn.row_factory=sqlite3.Row
         conn.execute("PRAGMA busy_timeout=3000")
+        if self._initialized:
+            return conn
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS performance_samples(
@@ -73,6 +77,7 @@ class PerformanceHistory:
             ON performance_samples(timestamp)
         """)
         conn.commit()
+        self._initialized=True
         return conn
 
     def sample(self):
@@ -107,7 +112,7 @@ class PerformanceHistory:
             "api_timeouts":int(counters.get("api.timeout",0)),
         }
         with self._lock:
-            with self._connect() as conn:
+            with closing(self._connect()) as conn, conn:
                 fields=",".join(row)
                 placeholders=",".join("?" for _ in row)
                 conn.execute(
@@ -128,7 +133,7 @@ class PerformanceHistory:
         limit=max(10,min(MAX_POINTS,int(limit)))
         cutoff=datetime.fromtimestamp(time.time()-hours*3600,timezone.utc).isoformat(timespec="seconds")
         with self._lock:
-            with self._connect() as conn:
+            with closing(self._connect()) as conn:
                 # Fetch a uniformly distributed bounded set, newest first,
                 # without materializing the entire history into Python.
                 total=conn.execute(
