@@ -126,24 +126,26 @@ class ProcessRegistry:
     def classify(self, runs: list[dict], observer_files: list[dict]) -> dict:
         snap = self.snapshot()
         by_run: dict[str, tuple[str, str]] = {}
+        file_activity: dict[str, float] = {}
         for entry in observer_files:
             source_path = entry["path"]
             uuid = _session_uuid(entry["provider"], source_path)
             if uuid:
                 by_run[entry["run_id"]] = (entry["provider"], uuid)
+            try:
+                last_modified = Path(source_path).stat().st_mtime
+                rid = entry["run_id"]
+                file_activity[rid] = max(file_activity.get(rid, 0), last_modified)
+            except OSError:
+                pass
         assigned = set()
         for run in runs:
             key = by_run.get(run["id"])
             linked = [p for p in snap["processes"]
                       if key and (p["provider"], p["session_id"]) == key]
-            updated = run.get("updated_at") or ""
-            try:
-                # Database dates are timezone-aware UTC, but only timestamps
-                # belonging to actual transcript rows should imply activity.
-                touched = datetime.fromisoformat(updated).timestamp()
-            except (TypeError, ValueError):
-                touched = 0
-            recent = time.time() - touched < 120
+            # Only the actual transcript file mtime implies agent activity.
+            # DB updated_at can be advanced by an observer-generated idle event.
+            recent = time.time() - file_activity.get(run["id"], 0) < 120
             if linked:
                 assigned.update(p["pid"] for p in linked)
                 presence = "active" if recent else "waiting"
