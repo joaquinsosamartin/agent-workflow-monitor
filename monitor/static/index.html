@@ -21,6 +21,7 @@ button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid var(--
 .tree-node{padding:8px 5px;border-radius:9px}
 .tree-node.primary{background:#192d43;border-left:3px solid #80aef7}
 .tree-node.claude{border-left:3px solid #b2a0e5}
+.tree-node.is-selected{outline:2px solid #8ebaff;background:#263f60}
 .tree-row{display:flex;gap:7px;align-items:flex-start}
 .tree-toggle{border:0;background:transparent;color:#aac5e8;min-width:21px;padding:1px 0;text-align:center}
 .tree-name{background:transparent;border:0;color:#eaf2ff;cursor:pointer;text-align:left;font-weight:650;font-size:12px;overflow-wrap:anywhere;padding:0}
@@ -68,7 +69,7 @@ h1{font-size:27px;letter-spacing:-.7px;margin:15px 0 5px}.header{display:flex;al
 let key="",selected="",stream=null,snapshot=null,inactiveExpanded=false;
 let lastRunSignature="",lastSnapshotSignature="",refreshTimer=null,historyExpanded=false,refreshing=false;
 let treeSignature="",processTreeOpened=new Set(),selectedProcess=null;
-let detailSelection={type:"none",id:null},selectionVersion=0;
+let detailSelection={type:"none",id:null},selectionVersion=0,refreshRequestId=0;
 let dashboardRequest=null,dashboardData=null,dashboardFetchedAt=0;
 async function getDashboard(force=false){
  if(!force&&dashboardData&&Date.now()-dashboardFetchedAt<8000)return dashboardData;
@@ -175,11 +176,13 @@ function sessionButton(r){
 function showProcessDetails(p){
  detailSelection={type:"process",id:p.pid};
  selectionVersion++;
+ refreshRequestId++;
  selectedProcess=p.pid;
  selected="";
  if(stream){stream.close();stream=null}
  if(refreshTimer){clearTimeout(refreshTimer);refreshTimer=null}
  lastRunSignature="";
+ treeSignature="";
  const view=document.querySelector("#view");
  view.replaceChildren();
  txt(view,"div","eyebrow","PROCESO LOCAL · "+String(p.pid));
@@ -192,6 +195,7 @@ function showProcessDetails(p){
    btn.onclick=()=>select(p.session.id);
    view.append(btn);
  }
+ refreshProcessTree().catch(console.error);
 }
 function renderProcessTree(payload){
  const box=document.querySelector("#process-tree");
@@ -210,7 +214,7 @@ function renderProcessTree(payload){
   for(const p of items){
    const wrap=el("div","tree-root");
    if(depth===0&&p.provider==="codex")wrap.style.borderLeftColor="#70a9f6";
-   const row=el("div","tree-node "+(p.provider==="codex"?"primary":"claude"));
+   const row=el("div","tree-node "+(p.provider==="codex"?"primary":"claude")+(detailSelection.type==="process"&&detailSelection.id===p.pid?" is-selected":""));
    const top=el("div","tree-row");
    const hasChildren=(p.children||[]).length>0;
    // Expanded by default for Codex roots; otherwise keep the user's choice.
@@ -393,12 +397,12 @@ async function showHistory(id){
  area.append(panel);view.append(area);
 }
 async function refresh(force=false){
- if(!selected||detailSelection.type!=="session"||refreshing)return;
- refreshing=true;
+ if(!selected||detailSelection.type!=="session")return;
+ const requestId=++refreshRequestId;
  try{
   const id=selected, version=selectionVersion;
   const data=await get("/api/runs/"+encodeURIComponent(id));
-  if(selected!==id||selectionVersion!==version||detailSelection.type!=="session")return;
+  if(selected!==id||selectionVersion!==version||detailSelection.type!=="session"||requestId!==refreshRequestId)return;
   const sig=JSON.stringify(data);
   if(force||sig!==lastSnapshotSignature){
    lastSnapshotSignature=sig;
@@ -408,7 +412,6 @@ async function refresh(force=false){
    window.scrollTo({top:scroll,behavior:"instant"});
   }
  }catch(e){console.error(e)}
- finally{refreshing=false}
 }
 function scheduleRefresh(){
  if(refreshTimer)return;
@@ -426,6 +429,7 @@ async function select(id){
  if(detailSelection.type==="session"&&selected===id)return;
  detailSelection={type:"session",id};
  selectionVersion++;
+ refreshRequestId++;
  const version=selectionVersion;
  selectedProcess=null;
  selected=id;
