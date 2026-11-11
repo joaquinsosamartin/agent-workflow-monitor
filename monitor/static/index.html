@@ -150,13 +150,13 @@ function eventName(item){
  return name+" · "+item.kind;
 }
 async function showHistory(id){
- const records=await get("/api/runs/"+encodeURIComponent(id)+"/history");
+ const records=await get("/api/runs/"+encodeURIComponent(id)+"/history?limit=40");
  if(id!==selected)return;
  const view=document.querySelector("#view");
  const area=el("section","activity");
  txt(area,"div","eyebrow","HISTORIAL DE ACCIONES");
  const panel=el("div","activity-list");
- const latest=records.slice(-40).reverse();
+ const latest=records;
  if(!latest.length)txt(panel,"div","muted","Todavía no hay eventos registrados");
  latest.forEach(record=>{
   const item=el("div","activity-item"),main=el("div");
