@@ -1,4 +1,4 @@
-import {sendSnapshot,bridgeStatus,listSharedWorkflows,loadSharedWorkflow,sendClaudeTask} from "./bridge.js";
+import {sendSnapshot,bridgeStatus,listSharedWorkflows,loadSharedWorkflow,loadDelegatedExecutions,sendClaudeTask} from "./bridge.js";
 /* Claude Code Mod — local, read-only workflow view.
  * All hooks pass through Claude's ordinary behavior; no tools are intercepted.
  * This version draws its own Pane and shows only data exposed by the Mods API.
@@ -9,7 +9,7 @@ const MAX_TOOLS = 12;
 let state = {
   open: false, startedAt: Date.now(), toolCount: 0, lastTool: "",
   tools: [], agents: [], usage: null, status: "idle", error: null, expandedAgents: {},
-  sharedPlans: [], selectedPlan: null, planData: null, expandedPhases: {},
+  sharedPlans: [], selectedPlan: null, planData: null, delegatedExecutions: [], expandedPhases: {},
 };
 
 function clean(text, max=85) {
@@ -59,7 +59,12 @@ async function loadPlans($) {
   try {
     state.sharedPlans = await listSharedWorkflows($);
     if(state.selectedPlan){
-      state.planData = await loadSharedWorkflow($,state.selectedPlan);
+      const [plan,executions]=await Promise.all([
+        loadSharedWorkflow($,state.selectedPlan),
+        loadDelegatedExecutions($,state.selectedPlan)
+      ]);
+      state.planData=plan;
+      state.delegatedExecutions=executions;
     }
   }catch(err){
     // The native Claude pane remains usable even when FastAPI is offline.
@@ -82,8 +87,12 @@ function addWorkflowRows($,rows,line,Box,Text,Button) {
         Text({children:(selected?"▾ ":"▸ ")+clean(plan.title,46)}),
         Button({label:selected?"Activo":"Ver",onPress:async()=>{
           state.selectedPlan=selected?null:plan.id;
-          state.planData=state.selectedPlan
-            ?await loadSharedWorkflow($,state.selectedPlan):null;
+          if(state.selectedPlan){
+            await loadPlans($);
+          }else{
+            state.planData=null;
+            state.delegatedExecutions=[];
+          }
           $.ui.invalidate("ui.render");
         }})
       ]}));
@@ -94,11 +103,12 @@ function addWorkflowRows($,rows,line,Box,Text,Button) {
   const byParent=parent=>phases.filter(p=>(p.parent_id||null)===parent);
   function drawPhase(p,depth=0) {
     const children=byParent(p.id);
+    const executions=state.delegatedExecutions.filter(ex=>ex.phase_id===p.id);
     const expanded=!!state.expandedPhases[p.id];
     const prefix=" ".repeat(Math.min(depth*2,8));
     const text=prefix+phaseStatus(p.status)+" "+clean(p.title,55);
     const person="  "+p.provider+(p.agent_id?" · "+clean(p.agent_id,30):"");
-    if(children.length){
+    if(children.length||executions.length){
       rows.push(Box({flexDirection:"row",children:[
         Text({children:text}),
         Button({label:expanded?"−":"+",onPress:()=>{
@@ -109,6 +119,16 @@ function addWorkflowRows($,rows,line,Box,Text,Button) {
     }else rows.push(line(text));
     rows.push(line(prefix+person,"gray"));
     if(expanded){
+      for(const execution of executions.slice(-5).reverse()){
+        rows.push(line(prefix+"  "+phaseStatus(execution.status)+" "+
+          clean(execution.provider,20)+" · "+clean(execution.agent_id,28),"gray"));
+        if(execution.orchestrator_provider){
+          rows.push(line(prefix+"    Orquestador: "+execution.orchestrator_provider+
+            (execution.orchestrator_session_id?" · sesión vinculada":""),"gray"));
+        }
+        rows.push(line(prefix+"    "+clean(execution.started_at,32)+
+          (execution.finished_at?" → "+clean(execution.finished_at,32):" · en curso"),"gray"));
+      }
       const history=(state.planData?.history||[]).filter(h=>h.phase_id===p.id);
       if(history.length){
         rows.push(line(prefix+"  Relevos y cambios: "+history.length,"gray"));
