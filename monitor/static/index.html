@@ -45,7 +45,7 @@ h1{font-size:27px;letter-spacing:-.7px;margin:15px 0 5px}.header{display:flex;al
 @media(max-width:750px){.layout{display:block}aside{border-right:0;border-bottom:1px solid var(--border);padding:18px}.brand{margin-bottom:12px}main{padding:20px}.card{padding:11px}.card b{font-size:17px}.cards{gap:7px}}
 </style></head>
 <body><div class="layout"><aside><div class="brand">◇ Agent Workflow <span>Monitor</span></div>
-<div class="eyebrow">EXECUTIONS</div><div id="runs"></div>
+<div class="eyebrow">EXECUTIONS</div><div id="process-state" class="muted" style="font-size:11px;margin:8px 0 14px"></div><div id="runs"></div>
 <button class="btn" id="demo">＋ Crear ejecución de demostración</button><p class="muted">SQLite local · SSE · Sin cloud</p>
 </aside><main id="view"><div class="empty">Selecciona una ejecución o crea una demostración.</div></main></div>
 <script>
@@ -128,7 +128,11 @@ function sessionButton(r){
  return b;
 }
 async function listRunsNoSelect(){
- const box=document.querySelector("#runs"),runs=await get("/api/runs");
+ const box=document.querySelector("#runs");
+ const [runs, processData]=await Promise.all([get("/api/runs"),get("/api/processes")]);
+ const state=document.querySelector("#process-state");
+ state.textContent=processData.detected_processes+" procesos CLI detectados · "+processData.verified_sessions+" sesiones vinculadas";
+ state.title="Los procesos sin identificador de sesión verificable no se asignan a una ejecución";
  const sig=JSON.stringify([runs.map(r=>[r.id,r.title,r.project,r.presence,r.updated_at,r.activity?.title,r.activity?.agent]),selected,inactiveExpanded]);
  if(sig===lastRunSignature)return runs;
  lastRunSignature=sig;
