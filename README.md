@@ -418,3 +418,48 @@ Run tests locally:
 ```
 
 No GitHub Actions workflows were added or executed.
+
+## Explicit Codex → Claude delegation tracking (local iteration)
+
+A new `monitor delegate` command can launch a **real** Claude or Codex
+subprocess for a known workflow phase and record its origin and outcome.
+The underlying schema is provider-neutral and can also support Orca.
+
+For example, on Windows (after importing the example workflow):
+
+```powershell
+$python = "C:\git\agent-workflow-monitor\.venv\Scripts\python.exe"
+$entry = "C:\git\agent-workflow-monitor\entry.py"
+& $python $entry delegate `
+  --plan pops-customer-api --phase qa `
+  --provider claude --agent qa-reviewer `
+  --orchestrator-provider codex `
+  -- claude -p "Review the implementation and report findings"
+```
+
+If you know the actual Codex orchestrator session ID, pass
+`--orchestrator-session ID`. If the child session ID is known, pass
+`--session ID`. Neither is guessed or taken from a similar timestamp.
+
+- `POST /api/workflows/{plan_id}/phases/{phase_id}/executions` records
+  an explicit launch with provider, agent, optional session, orchestrator
+  and PID.
+- `POST /api/workflows/executions/{execution_id}/finish` records an exit
+  code and guards against overwriting a phase that has since been handed
+  to a different agent.
+- `GET /api/workflows/{plan_id}/executions` returns execution history.
+
+A Claude Mod `/workflow` panel can display the executor, orchestrator,
+timestamps and exit status beneath an expanded phase. This data is
+separate from token-based cost accounting.
+
+Install the optional Codex skill from
+`integrations/codex/skills/agent-workflow-delegate/SKILL.md` using
+`integrations/codex/README.md` for Windows instructions.
+
+**Current scope:** this tracks **only processes explicitly launched with
+the wrapper**. It is not a universal passive listener for arbitrary Codex
+orchestration, and it does not intercept an already-running Codex session.
+The Codex app-server and SDK have richer event streams for a future
+fully automatic agent-orchestration adapter. No commands, prompts or
+agent outputs are persisted by the wrapper. No GitHub Actions.
