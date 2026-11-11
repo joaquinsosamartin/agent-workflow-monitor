@@ -4,17 +4,12 @@ Only explicit metadata is accepted. No prompts, tool arguments or tool outputs.
 """
 from __future__ import annotations
 import ntpath
-import uuid
 from pydantic import BaseModel, Field
 from typing import Literal
 
 from .db import Store
+from .observer import stable
 
-NAMESPACE = uuid.UUID("8e48086e-bf82-49a5-80c1-606c34175b1a")
-
-
-def derived_id(*parts: str) -> str:
-    return str(uuid.uuid5(NAMESPACE, ":".join(parts)))
 
 
 class ModAgent(BaseModel):
@@ -39,7 +34,7 @@ class ModEvent(BaseModel):
 
 
 def ingest(store: Store, event: ModEvent) -> dict:
-    run_id = derived_id("mod", "claude", event.session_id)
+    run_id = stable("run", "claude", event.session_id)
     project = ntpath.basename(event.cwd.rstrip("/\\ ")) if event.cwd else "Claude Code"
     if not project:
         project = "Claude Code"
@@ -55,7 +50,7 @@ def ingest(store: Store, event: ModEvent) -> dict:
                     (project, run_id)
                 )
 
-    session_node = derived_id("mod",event.session_id,"session")
+    session_node = stable("node", run_id, "session")
     with store.lock:
         found = store.conn.execute("SELECT id FROM nodes WHERE id=?", (session_node,)).fetchone()
         if not found:
@@ -64,7 +59,7 @@ def ingest(store: Store, event: ModEvent) -> dict:
 
     # Store one stable child per subagent; never allocate a new node per poll.
     for index, agent in enumerate(event.agents):
-        node_id = derived_id("mod", event.session_id, "agent", agent.id)
+        node_id = stable("node", run_id, f"agent:{agent.id}")
         with store.lock:
             row = store.conn.execute("SELECT id FROM nodes WHERE id=?", (node_id,)).fetchone()
             if row is None:
@@ -73,13 +68,17 @@ def ingest(store: Store, event: ModEvent) -> dict:
                                position=index,node_id=node_id)
             else:
                 store.set_node_title(node_id,agent.title)
+            current = store.conn.execute(
+                "SELECT status FROM nodes WHERE id=?", (node_id,)
+            ).fetchone()
         normalized = {"idle":"idle","killed":"cancelled"}.get(agent.status,agent.status)
-        store.save_event({
-            "run_id":run_id,"type":"node.status","node_id":node_id,
-            "status":normalized,"agent":f"Claude · {agent.id[:18]}",
-            "provider":"claude",
-            "external_id":f"mod:{event.session_id}:{event.event_id}:agent:{agent.id}"
-        })
+        if current is None or current["status"] != normalized:
+            store.save_event({
+                "run_id":run_id,"type":"node.status","node_id":node_id,
+                "status":normalized,"agent":f"Claude · {agent.id[:18]}",
+                "provider":"claude",
+                "external_id":f"mod:{event.session_id}:{event.event_id}:agent:{agent.id}"
+            })
     if event.tool:
         # Keep only the name; never include the call arguments/output.
         store.save_event({
@@ -87,8 +86,13 @@ def ingest(store: Store, event: ModEvent) -> dict:
             "message":f"{(event.agent_id or 'Claude')[:40]} · {event.tool}",
             "external_id":f"mod:{event.session_id}:{event.event_id}:tool"
         })
-    store.save_event({
-        "run_id":run_id,"type":"run.status","status":event.status,
-        "external_id":f"mod:{event.session_id}:{event.event_id}:status"
-    })
+    with store.lock:
+        current_run = store.conn.execute(
+            "SELECT status FROM runs WHERE id=?", (run_id,)
+        ).fetchone()
+    if current_run and current_run["status"] != event.status:
+        store.save_event({
+            "run_id":run_id,"type":"run.status","status":event.status,
+            "external_id":f"mod:{event.session_id}:{event.event_id}:status"
+        })
     return {"run_id":run_id,"session_node_id":session_node,"agents":len(event.agents)}
