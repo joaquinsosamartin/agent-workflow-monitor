@@ -80,6 +80,7 @@ let lastRunSignature="",lastSnapshotSignature="",refreshTimer=null,historyExpand
 let treeSignature="",processTreeOpened=new Set(),selectedProcess=null;
 let detailSelection={type:"none",id:null},selectionVersion=0,refreshRequestId=0;
 const expandedAgentCards=new Set();
+let processDetailSignature="";
 let dashboardRequest=null,dashboardData=null,dashboardFetchedAt=0;
 async function getDashboard(force=false){
  if(!force&&dashboardData&&Date.now()-dashboardFetchedAt<8000)return dashboardData;
@@ -257,6 +258,7 @@ function addCoordinatedAgents(view,process){
  view.append(section);
 }
 function showProcessDetails(p,refreshTree=true){
+ processDetailSignature=JSON.stringify(p);
  // Reuse Agent Execution presentation for any selected process; only a
  // correlated session can supply token counts or costs.
  detailSelection={type:"process",id:p.pid};
@@ -408,8 +410,22 @@ function renderProcessTree(payload){
  txt(box,"div","tree-hint","Solo procesos vivos, agrupados por parentesco. Un grupo no equivale necesariamente a una sesión; los registros antiguos están ocultos.");
 }
 async function refreshProcessTree(force=false){
- try{renderProcessTree((await getDashboard(force)).topology)}
- catch(e){console.warn("Process tree unavailable",e)}
+ try{
+  const topology=(await getDashboard(force)).topology;
+  renderProcessTree(topology);
+  if(detailSelection.type==="process"){
+   const find=(nodes)=>{for(const p of nodes||[]){
+     if(p.pid===detailSelection.id)return p;
+     const child=find(p.children);
+     if(child)return child;
+   }return null};
+   const current=find(topology.roots);
+   if(current&&JSON.stringify(current)!==processDetailSignature){
+     // Keep the same clicked agent, update only if its observed data changed.
+     showProcessDetails(current,false);
+   }
+  }
+ }catch(e){console.warn("Process tree unavailable",e)}
 }
 async function listRunsNoSelect(){
  const box=document.querySelector("#runs");
