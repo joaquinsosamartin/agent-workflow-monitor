@@ -108,7 +108,20 @@ function addWorkflowRows($,rows,line,Box,Text,Button) {
       ]}));
     }else rows.push(line(text));
     rows.push(line(prefix+person,"gray"));
-    if(expanded)children.slice(0,50).forEach(x=>drawPhase(x,depth+1));
+    if(expanded){
+      const history=(state.planData?.history||[]).filter(h=>h.phase_id===p.id);
+      if(history.length){
+        rows.push(line(prefix+"  Relevos y cambios: "+history.length,"gray"));
+        for(const event of history.slice(-4).reverse()){
+          const changed=event.previous_provider!==event.next_provider||
+                        event.previous_agent_id!==event.next_agent_id;
+          rows.push(line(prefix+"  "+(changed?"↳ ":"· ")+
+            clean(event.previous_provider,12)+" → "+
+            clean(event.next_provider,12)+" · "+clean(event.next_status,20),"gray"));
+        }
+      }
+      children.slice(0,50).forEach(x=>drawPhase(x,depth+1));
+    }
   }
   byParent(null).slice(0,50).forEach(p=>drawPhase(p));
 }
@@ -174,7 +187,7 @@ async function open($){
 function recordTaskChange($,e,outcome) {
   // Only completed TaskCreate/TaskUpdate calls; no inferred progress from
   // arbitrary tool invocations or file edits, and never affect Codex phases.
-  if(!state.selectedPlan||outcome?.isError||outcome?.deny)return;
+  if(!state.selectedPlan||outcome?.isError||outcome?.deny||outcome?.result?.success===false)return;
   const action=e.tool==="TaskCreate"?"created":e.tool==="TaskUpdate"?"updated":null;
   if(!action)return;
   const body=outcome?.result;
