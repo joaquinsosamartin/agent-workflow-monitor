@@ -95,6 +95,38 @@ class ObserverTests(unittest.TestCase):
         self.observer.scan_once()
         self.assertEqual(self.store.snapshot(rid)["run"]["status"],"idle")
 
+    def test_codex_turn_complete_keeps_session_open(self):
+        sid = "12345678-1111-2222-3333-123456789abc"
+        path = (self.root / ".codex" / "sessions" / "2026" / "11" / "11" /
+                ("rollout-2026-11-11T10-00-00-" + sid + ".jsonl"))
+        self.append(path,
+            {"type":"session_meta","payload":{"id":sid,"cwd":"C:/src/customer-api"}},
+            {"type":"event_msg","timestamp":"first","payload":{"type":"task_started"}},
+            {"type":"event_msg","timestamp":"second","payload":{"type":"task_complete"}})
+        self.observer._scan_file("codex",path)
+        rid = stable("run","codex",path.stem)
+        snap = self.store.snapshot(rid)
+        self.assertEqual(snap["run"]["status"],"running")
+        self.assertEqual(snap["nodes"][0]["status"],"completed")
+        self.assertEqual(self.observer.file_stats[str(path)]["invalid_this_scan"],0)
+
+    def test_codex_malformed_record_does_not_hide_session(self):
+        sid = "12345678-1111-2222-3333-123456789abc"
+        path = (self.root / ".codex" / "sessions" / "2026" / "11" / "11" /
+                ("rollout-2026-11-11T10-00-00-" + sid + ".jsonl"))
+        path.parent.mkdir(parents=True,exist_ok=True)
+        with path.open("w",encoding="utf-8") as stream:
+            stream.write(json.dumps({"type":"session_meta","payload":{
+                "id":sid,"cwd":"C:/src/customer-api"}})+"\\n")
+            stream.write("{invalid json}\\n")
+            stream.write(json.dumps({"type":"event_msg","timestamp":"t1","payload":{
+                "type":"task_started"}})+"\\n")
+        self.observer._scan_file("codex",path)
+        rid=stable("run","codex",path.stem)
+        self.assertIsNotNone(self.store.snapshot(rid))
+        self.assertEqual(self.store.snapshot(rid)["run"]["status"],"running")
+        self.assertEqual(self.observer.file_stats[str(path)]["invalid_this_scan"],1)
+
     def test_codex_cumulative_token_usage_is_not_summed(self):
         path=self.root / ".codex" / "sessions" / "2026" / "11" / "11" / "rollout-test.jsonl"
         self.append(path,
