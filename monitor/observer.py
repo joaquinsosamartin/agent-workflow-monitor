@@ -446,10 +446,14 @@ class SessionObserver:
                                          "cost_source":"unavailable"},
                                 "external_id":f"codex-tokens:{canonical}:{row.get('timestamp')}:{json.dumps(totals,sort_keys=True)}"})
             elif ev in ("task_started","task_complete","turn_aborted"):
+                # These events describe one turn, not the lifetime of the CLI
+                # session. A completed turn does NOT mean the session has ended.
                 status={"task_started":"running","task_complete":"completed","turn_aborted":"failed"}[ev]
                 self._emit({"run_id":rid,"type":"node.status","node_id":root,
                             "status":status,"external_id":f"codex-turn:{ev}:{row.get('timestamp')}"})
-                self._emit({"run_id":rid,"type":"run.status","status":status,
+                # Keep the session observable while its transcript is active.
+                # The inactivity reconciler will later mark it idle.
+                self._emit({"run_id":rid,"type":"run.status","status":"running",
                             "external_id":f"codex-run:{ev}:{row.get('timestamp')}"})
         elif typ == "response_item":
             kind=payload.get("type")
