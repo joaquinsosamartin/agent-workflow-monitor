@@ -196,3 +196,24 @@ Use `git pull`, install the changed dependencies with
 stop the old monitor process and run it again. This update is intentionally read-only and retains all historical SQLite records.
 
 The Orca adapter, Claude Mod, and Codex plugin are still future integrations; this release only enriches the common local monitor.
+
+## Diagnóstico: Codex visible como proceso pero no como sesión
+
+En Windows, el panel ahora distingue **procesos CLI** y **sesiones observadas**. Un Codex ejecutándose normalmente puede no llevar el ID de sesión en su comando; aparecerá bajo «Procesos sin sesión vinculada» hasta que se encuentre y se correlacione su registro JSONL. No presupone que todos los procesos sean sesiones independientes.
+
+- `GET /api/processes`: totales separados para Codex y Claude, PIDs de procesos sin sesión y relaciones de ascendencia de procesos (son pistas, no pruebas de delegación).
+- `GET /api/observer`: rutas comprobadas, existencia de cada directorio, número de JSONL y número de archivos recientes.
+- Se observan `%USERPROFILE%\.codex\sessions` y, si `CODEX_HOME` no está configurado, `%APPDATA%\codex\sessions`. No se accede a WSL de forma automática.
+- Si Codex está en WSL o utiliza otro `CODEX_HOME`, inicia Agent Monitor en ese entorno o configura una ruta de sesiones accesible por Windows; no dupliques directorios de datos ni copies archivos de autenticación.
+- Los títulos y la jerarquía de Claude/Codex siguen dependiendo de los eventos realmente observables; la ascendencia entre procesos no implica que un Claude sea un subagente de un Codex.
+
+Para actualizar sin GitHub Actions:
+
+```powershell
+cd C:\git\agent-workflow-monitor
+git pull
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m monitor serve
+```
+
+Después abre `http://127.0.0.1:8765/api/processes` y `http://127.0.0.1:8765/api/observer`. No publiques datos completos de rutas o PID si no quieres compartir detalles de tu equipo.
