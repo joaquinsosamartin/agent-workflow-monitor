@@ -158,6 +158,27 @@ def classified_runs():
     process_state = process_registry.classify(runs, observer_files)
     return runs, process_state
 
+@app.get('/api/dashboard')
+def dashboard():
+    """One coherent snapshot for the sidebar instead of three costly requests."""
+    from .topology import build_process_tree
+    runs, processes = classified_runs()
+    manual = current_manual_links(processes)
+    return {
+        "runs": runs,
+        "processes": {
+            "detected_processes": len(processes["processes"]),
+            "verified_sessions": processes["verified_sessions"],
+            "processes_by_provider": processes["processes_by_provider"],
+            "unmatched_processes": processes["unmatched_processes"],
+            "process_relationships": processes["process_relationships"],
+        },
+        "topology": build_process_tree(
+            processes["processes"], processes["process_relationships"], runs, manual
+        ),
+        "checked_at": processes["checked_at"],
+    }
+
 @app.get('/api/runs')
 def get_runs():
     runs, _ = classified_runs()
