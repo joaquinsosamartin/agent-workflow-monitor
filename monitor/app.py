@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, model_validator
 from typing import Literal
 from .db import Store
 from .process_watch import ProcessRegistry
+from .performance import perf, resource_snapshot
 
 STATIC = Path(__file__).resolve().parent/'static'
 DATA_DIR=Path(os.getenv('AGENT_MONITOR_DATA', str(Path.home()/'.agent-monitor')))
@@ -82,16 +83,21 @@ app=FastAPI(title='Agent Workflow Monitor',version='0.3.2')
 log = logging.getLogger(__name__)
 
 async def bounded(call, *args, operation='database', timeout=5.0):
+    started=time.perf_counter()
     try:
         return await asyncio.wait_for(asyncio.to_thread(call, *args), timeout=timeout)
     except asyncio.TimeoutError:
+        perf.count("api.timeout")
         log.error("Timed out waiting for %s after %.1fs",operation,timeout)
         raise HTTPException(status_code=503,detail=f"{operation} timed out")
+    finally:
+        perf.observe("api."+operation.replace(" ","_")+"_ms",
+                     (time.perf_counter()-started)*1000)
 
 # Local transcript observation is read-only and requires no provider hooks.
 # Disable with AGENT_MONITOR_OBSERVE=0.
 from .observer import SessionObserver
-observer = SessionObserver(store, poll_seconds=float(os.getenv('AGENT_MONITOR_POLL_SECONDS', '2')),
+observer = SessionObserver(store, poll_seconds=max(1.0,float(os.getenv('AGENT_MONITOR_POLL_SECONDS', '5'))),
                            max_age_hours=float(os.getenv('AGENT_MONITOR_LOOKBACK_HOURS', '12')))
 
 @app.on_event('startup')
@@ -102,6 +108,17 @@ async def observer_start():
 @app.on_event('shutdown')
 async def observer_shutdown():
     observer.stop()
+
+@app.get('/api/performance')
+async def get_performance():
+    return {
+        **perf.snapshot(),
+        "process": await bounded(resource_snapshot, operation="resource sample"),
+        "observer": {"poll_seconds": observer.poll_seconds,
+                     "last_scan": observer.scan_summary},
+        "configuration": {"dashboard_refresh_seconds":
+            max(2,int(os.getenv("AGENT_MONITOR_DASHBOARD_SECONDS","10")))},
+    }
 
 @app.get('/api/observer')
 def observer_status():
@@ -163,7 +180,8 @@ async def health():
 def index(): return FileResponse(STATIC/'index.html')
 
 @app.get('/api/bootstrap')
-def bootstrap(): return {'key':KEY,'version':'0.3.2'}
+def bootstrap(): return {'key':KEY,'version':'0.3.2',
+                         'dashboard_refresh_seconds':max(2,int(os.getenv('AGENT_MONITOR_DASHBOARD_SECONDS','10')))}
 
 def classified_runs():
     runs = store.run_list()
@@ -194,10 +212,28 @@ def build_dashboard():
     }
 
 from .mod_bridge import ModEvent, ingest as ingest_mod_event
+from pydantic import RootModel
 
 @app.post('/api/integrations/claude/events',dependencies=[Depends(authorize)])
 async def claude_mod_event(event:ModEvent):
-    return await bounded(ingest_mod_event, store, event, operation='Claude Mod ingest')
+    perf.count("mod.events_received")
+    result = await bounded(ingest_mod_event, store, event, operation='Claude Mod ingest')
+    perf.count("mod.events_written")
+    return result
+
+class ModBatch(RootModel[list[ModEvent]]):
+    root: list[ModEvent] = Field(min_length=1, max_length=50)
+
+def ingest_mod_batch(batch):
+    return [ingest_mod_event(store, e) for e in batch.root]
+
+@app.post('/api/integrations/claude/events/batch',dependencies=[Depends(authorize)])
+async def claude_mod_batch(batch:ModBatch):
+    perf.count("mod.events_received", len(batch.root))
+    result = await bounded(ingest_mod_batch,batch,operation="Claude Mod batch")
+    perf.count("mod.events_written", len(result))
+    return {"accepted":len(result)}
+
 
 from .workflow_plan import (
     PlanInput, PhaseUpdate, initialize as initialize_plans,
