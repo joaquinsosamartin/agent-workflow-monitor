@@ -10,7 +10,7 @@ import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Thread
 
 import psutil
 
@@ -87,18 +87,37 @@ class ProcessRegistry:
         self._updated = 0.0
         self._processes: list[dict] = []
         self._errors: list[str] = []
+        self._refreshing = False
 
     def snapshot(self) -> dict:
+        """Never block HTTP requests on Windows process enumeration."""
         with self._lock:
-            if time.monotonic() - self._updated >= self.ttl:
-                self._refresh()
+            stale = time.monotonic() - self._updated >= self.ttl
+            if stale and not self._refreshing:
+                self._refreshing = True
+                Thread(target=self._refresh_background, daemon=True,
+                       name="agent-process-sampler").start()
             return {
                 "checked_at": datetime.now(timezone.utc).isoformat(),
                 "processes": [dict(p) for p in self._processes],
                 "errors": list(self._errors),
+                "refreshing": self._refreshing,
             }
 
-    def _refresh(self):
+    def _refresh_background(self):
+        try:
+            processes, errors = self._collect()
+        except Exception as exc:
+            processes = None
+            errors = [type(exc).__name__]
+        with self._lock:
+            if processes is not None:
+                self._processes = processes
+            self._errors = errors[:5]
+            self._updated = time.monotonic()
+            self._refreshing = False
+
+    def _collect(self):
         processes = []
         errors = []
         for process in psutil.process_iter(["pid", "ppid", "name", "cmdline", "create_time"]):
@@ -123,9 +142,7 @@ class ProcessRegistry:
                 continue
             except Exception as exc:
                 errors.append(type(exc).__name__)
-        self._processes = processes
-        self._errors = errors[:5]
-        self._updated = time.monotonic()
+        return processes, errors
 
     def classify(self, runs: list[dict], observer_files: list[dict]) -> dict:
         snap = self.snapshot()
