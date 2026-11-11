@@ -68,6 +68,16 @@ h1{font-size:27px;letter-spacing:-.7px;margin:15px 0 5px}.header{display:flex;al
 let key="",selected="",stream=null,snapshot=null,inactiveExpanded=false;
 let lastRunSignature="",lastSnapshotSignature="",refreshTimer=null,historyExpanded=false,refreshing=false;
 let treeSignature="",processTreeOpened=new Set(),selectedProcess=null;
+let dashboardRequest=null,dashboardData=null,dashboardFetchedAt=0;
+async function getDashboard(force=false){
+ if(!force&&dashboardData&&Date.now()-dashboardFetchedAt<8000)return dashboardData;
+ if(dashboardRequest)return dashboardRequest;
+ dashboardRequest=get("/api/dashboard").then(data=>{
+   dashboardData=data;dashboardFetchedAt=Date.now();return data;
+ }).finally(()=>{dashboardRequest=null});
+ return dashboardRequest;
+}
+
 const opened=new Set(),closed=new Set();
 const el=(tag,cls,text)=>{const x=document.createElement(tag);if(cls)x.className=cls;if(text!==undefined)x.textContent=text;return x};
 const money=x=>x==null?"—":"$"+Number(x).toFixed(Number(x)<1?4:2);
@@ -207,7 +217,7 @@ function renderProcessTree(payload){
        unlink.onclick=async()=>{
          try{await fetch("/api/topology/links/"+p.pid,{method:"DELETE",headers:{"X-Monitor-Key":key}})
              .then(x=>{if(!x.ok)throw Error("No se ha podido desvincular")});
-             treeSignature="";await refreshProcessTree();
+             treeSignature="";await refreshProcessTree(true);
          }catch(e){alert(e.message)}
        };
        meta.append(unlink);
@@ -225,7 +235,7 @@ function renderProcessTree(payload){
          confirm.onclick=async()=>{
            try{
              await post("/api/topology/links",{parent_pid:Number(choices.value),child_pid:p.pid});
-             treeSignature="";await refreshProcessTree();
+             treeSignature="";await refreshProcessTree(true);
            }catch(e){alert(e.message)}
          };
          meta.append(choices,confirm);
@@ -246,13 +256,14 @@ function renderProcessTree(payload){
  treeNodes(roots,box);
  txt(box,"div","tree-hint","Jerarquía de procesos: automática cuando existe parentesco; puedes vincular manualmente Claude a Codex. Esto no confirma por sí solo una delegación de tareas.");
 }
-async function refreshProcessTree(){
- try{renderProcessTree(await get("/api/topology"))}
+async function refreshProcessTree(force=false){
+ try{renderProcessTree((await getDashboard(force)).topology)}
  catch(e){console.warn("Process tree unavailable",e)}
 }
 async function listRunsNoSelect(){
  const box=document.querySelector("#runs");
- const [runs, processData]=await Promise.all([get("/api/runs"),get("/api/processes")]);
+ const dashboard=await getDashboard();
+ const runs=dashboard.runs,processData=dashboard.processes;
  const state=document.querySelector("#process-state");
  const counts=processData.processes_by_provider||{};
  state.textContent="Codex: "+(counts.codex||0)+" procesos · Claude: "+(counts.claude||0)+" · "+processData.verified_sessions+" sesiones vinculadas";
@@ -319,7 +330,7 @@ async function listRunsNoSelect(){
  const heading=el("span","");heading.textContent="⌄ INACTIVAS E HISTÓRICAS";
  txt(heading,"span","session-count",String(inactive.length));
  toggle.append(heading,el("span","",inactiveExpanded?"⌃":"⌄"));
- toggle.onclick=()=>{inactiveExpanded=!inactiveExpanded;listRunsNoSelect().catch(console.error)};
+ toggle.onclick=()=>{inactiveExpanded=!inactiveExpanded;lastRunSignature="";listRunsNoSelect().catch(console.error)};
  inactiveSection.append(toggle);
  if(inactiveExpanded){
   if(inactive.length)inactive.forEach(r=>inactiveSection.append(sessionButton(r)));
@@ -394,14 +405,14 @@ async function select(id){
  if(refreshTimer){clearTimeout(refreshTimer);refreshTimer=null}
  opened.clear();closed.clear();historyExpanded=false;
  lastSnapshotSignature="";lastRunSignature="";
- const runs=await get("/api/runs");
+ const runs=(await getDashboard()).runs;
  if(runs.find(r=>r.id===id&&r.presence==="inactive"))inactiveExpanded=true;
  await refresh(true);
  await listRunsNoSelect();
  stream=new EventSource("/api/runs/"+encodeURIComponent(id)+"/events");
  stream.addEventListener("update",scheduleRefresh);
 }
-setInterval(async()=>{try{await Promise.all([listRunsNoSelect(),refreshProcessTree()])}catch(e){console.warn(e)}},5000);
+setInterval(async()=>{try{await Promise.all([listRunsNoSelect(),refreshProcessTree()])}catch(e){console.warn(e)}},10000);
 document.querySelector("#demo").onclick=async()=>{try{const r=await post("/api/demo",{});await select(r.id)}catch(e){alert(e.message)}};
 (async()=>{try{key=(await get("/api/bootstrap")).key;await Promise.all([listRuns(),refreshProcessTree()])}catch(e){document.querySelector("#view").textContent="Error al conectar con backend: "+e.message}})();
 </script></body></html>
