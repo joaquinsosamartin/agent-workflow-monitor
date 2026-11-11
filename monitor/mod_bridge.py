@@ -61,12 +61,12 @@ def ingest(store: Store, event: ModEvent) -> dict:
     for index, agent in enumerate(event.agents):
         node_id = stable("node", run_id, f"agent:{agent.id}")
         with store.lock:
-            row = store.conn.execute("SELECT id FROM nodes WHERE id=?", (node_id,)).fetchone()
+            row = store.conn.execute("SELECT id,title FROM nodes WHERE id=?", (node_id,)).fetchone()
             if row is None:
                 store.add_node(run_id,agent.title,parent_id=session_node,
                                agent=f"Claude · {agent.id[:18]}",provider="claude",
                                position=index,node_id=node_id)
-            else:
+            elif row["title"] != agent.title:
                 store.set_node_title(node_id,agent.title)
             current = store.conn.execute(
                 "SELECT status FROM nodes WHERE id=?", (node_id,)
