@@ -107,6 +107,7 @@ export async function sendSnapshot($, data) {
     context_tokens:Number.isInteger(data.context?.tokens)?data.context.tokens:null,
     context_window:Number.isInteger(data.context?.window)?data.context.window:null,
     hook_latency_ms:Number.isFinite(data.hookLatencyMs)?Math.max(0,Math.min(60000,data.hookLatencyMs)):null,
+    dropped_events:dropped,
   };
   if(pending.length>=MAX_PENDING){pending.shift();dropped++}
   pending.push(payload);
