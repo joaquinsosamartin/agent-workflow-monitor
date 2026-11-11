@@ -60,7 +60,8 @@ h1{font-size:27px;letter-spacing:-.7px;margin:15px 0 5px}.header{display:flex;al
 @media(max-width:750px){.layout{display:block}aside{border-right:0;border-bottom:1px solid var(--border);padding:18px}.brand{margin-bottom:12px}main{padding:20px}.card{padding:11px}.card b{font-size:17px}.cards{gap:7px}}
 </style></head>
 <body><div class="layout"><aside><div class="brand">◇ Agent Workflow <span>Monitor</span></div>
-<div class="eyebrow">EXECUTIONS</div><div id="process-state" class="muted" style="font-size:11px;margin:8px 0 14px"></div><div id="runs"></div>
+<div class="eyebrow">PROCESS TREE</div><div id="process-tree"></div>
+<div class="eyebrow" style="margin-top:24px">SESIONES OBSERVADAS</div><div id="process-state" class="muted" style="font-size:11px;margin:8px 0 14px"></div><div id="runs"></div>
 <button class="btn" id="demo">＋ Crear ejecución de demostración</button><p class="muted">SQLite local · SSE · Sin cloud</p>
 </aside><main id="view"><div class="empty">Selecciona una ejecución o crea una demostración.</div></main></div>
 <script>
