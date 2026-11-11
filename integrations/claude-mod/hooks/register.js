@@ -50,6 +50,7 @@ function draw($, e) {
     :Text({children:clean(value,110),...(color?{color}: {})});
   const rows=[
     Text({children:"AGENT WORKFLOW MONITOR",bold:true,color:"cyan"}),
+    Text({children:"made with ❤️ by joaquinsosa.es",dimColor:true}),
     line("Estado: "+state.status+"  ·  Herramientas: "+state.toolCount),
   ];
   if(state.usage?.window) {
