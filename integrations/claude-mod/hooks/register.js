@@ -246,7 +246,9 @@ export function register(on){
   on("session.start",async($,e,next)=>{
     const result=await next(e);
     await $.command.register({name:"workflow",description:"Open the Agent Workflow Monitor pane"});
-    await capture($);
+    void capture($).catch(err=>{
+      state.error="Sesión: "+clean(err?.message??err,100);
+    });
     return result;
   });
   on("command.run",{command:"workflow"},async($,e)=>{
@@ -265,15 +267,22 @@ export function register(on){
     const result=await next(e);
     const observationStarted=Date.now();
     if(!e.agentId)state.status="waiting";
-    await capture($);
-    state.lastHookLatencyMs=Date.now()-observationStarted;
-    publish($,state.tools[state.tools.length-1]??null);
+    const lastTool=state.tools[state.tools.length-1]??null;
+    // Never wait for session usage, agent discovery or localhost I/O in
+    // the Claude turn lifecycle. Failures remain visible in the pane.
+    void capture($).then(()=>{
+      state.lastHookLatencyMs=Date.now()-observationStarted;
+      publish($,lastTool);
+    }).catch(err=>{
+      state.error="Captura: "+clean(err?.message??err,100);
+    });
     return result;
   });
   on("agent.spawn",async($,e,next)=>{
     const result=await next(e);
-    await capture($);
-    publish($);
+    void capture($).then(()=>publish($)).catch(err=>{
+      state.error="Agentes: "+clean(err?.message??err,100);
+    });
     return result;
   });
   on("tool.call",async($,e,next)=>{
