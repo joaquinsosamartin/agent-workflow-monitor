@@ -32,10 +32,23 @@ def positive_int(value):
 
 
 def path_roots():
+    """Primary roots; Windows users may also have legacy/AppData Codex homes."""
     home = Path.home()
     claude = Path(os.environ.get("CLAUDE_CONFIG_DIR", home / ".claude")) / "projects"
     codex = Path(os.environ.get("CODEX_HOME", home / ".codex")) / "sessions"
     return {"claude": claude, "codex": codex}
+
+
+def discovery_roots():
+    roots = list(path_roots().items())
+    # Do not combine unrelated/custom Codex homes when CODEX_HOME is explicitly set.
+    if not os.environ.get("CODEX_HOME") and os.name == "nt":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            alternate = Path(appdata) / "codex" / "sessions"
+            if alternate != roots[1][1]:
+                roots.append(("codex", alternate))
+    return roots
 
 
 def short_title(value, fallback="", limit=105):
@@ -107,7 +120,7 @@ class SessionObserver:
 
     def _files(self):
         now = time.time()
-        for provider, root in path_roots().items():
+        for provider, root in discovery_roots():
             if not root.exists():
                 continue
             try:
