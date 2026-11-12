@@ -279,6 +279,20 @@ def _associate_agent_session(data:AgentSessionLinkIn):
             raise HTTPException(404,"Session was not found")
         if data.run_id not in claude_run_ids():
             raise HTTPException(400,"Only Claude sessions can be linked to Claude processes")
+        from .process_watch import _session_uuid
+        paths=store.conn.execute("""
+            SELECT path FROM observer_files
+            WHERE provider='claude' AND run_id=?
+        """,(data.run_id,)).fetchall()
+        verified_ids={sid for row in paths
+                      if (sid:=_session_uuid("claude",row["path"]))}
+        for candidate in snap["processes"]:
+            if (candidate.get("provider")=="claude"
+                and candidate.get("session_id") in verified_ids
+                and candidate["pid"]!=data.pid):
+                raise HTTPException(
+                    409,"This Claude session is verified under another live process"
+                )
         store.conn.execute("""
             INSERT INTO agent_session_links(provider,pid,started_at,run_id,linked_at)
             VALUES('claude',?,?,?,?)
