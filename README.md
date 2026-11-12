@@ -578,3 +578,40 @@ Local tests (no cloud or GitHub Actions):
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
+
+## Focused orchestrator view (November 2026)
+
+The **Ejecuciones** sidebar no longer lists every local Codex process as a
+separate work session. Instead:
+
+1. Choose your **active Codex** from the **ORQUESTADOR DE TRABAJO** dropdown.
+2. The sidebar shows **only that Codex** and its related Claude processes.
+   Other Codex processes are accessible through the dropdown, not displayed as
+   independent session cards.
+3. Expand **ASOCIAR CLAUDE** to select the Claude processes working on that
+   orchestration, and choose **Asociar seleccionados**. Multiple Claudes can
+   be linked in one request. Related Claude processes remain clickable, and
+   their associated agent cards are shown in the orchestrator's right pane.
+4. Existing user-confirmed associations are reused while the exact processes
+   remain alive. You can **Desasociar** a Claude when needed.
+
+The chosen Codex is saved in local SQLite in `monitor_focus`. Bulk Claude
+relationships are stored in `process_links`. Both identities include the
+**process creation timestamp** to prevent accidentally reusing a relationship
+when Windows recycles a PID. The selected Codex and its confirmed links are
+returned by `GET /api/dashboard` as `focus` and `manual_links`.
+
+- `POST /api/topology/focus` (body `{"pid": 1234}`) selects the active Codex.
+- `DELETE /api/topology/focus` clears the selection.
+- `POST /api/topology/links/batch` (body
+  `{"parent_pid":1234,"child_pids":[5678,9012]}`) associates chosen Claudes.
+
+All mutations require `X-Monitor-Key`. The backend validates *all* selected
+PIDs before creating links. We do not guess cross-provider orchestration from
+similar task titles, dates or process counts. OS parentage may be shown as
+**observed ancestry**, not proof of intentional delegation. For future truly
+automatic grouping, Codex and Claude adapters must publish verified
+orchestrator/executor identities. Restarting a CLI process may therefore
+require selecting and confirming links again.
+
+No GitHub Actions were added or executed.
