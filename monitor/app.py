@@ -225,10 +225,18 @@ with store.lock,store.conn:
         ON agent_session_links(provider,pid,started_at)
     """)
 
+def claude_run_ids():
+    with store.lock:
+        return {row[0] for row in store.conn.execute("""
+            SELECT run_id FROM observer_files WHERE provider='claude'
+            UNION SELECT run_id FROM nodes WHERE provider='claude'
+        """)}
+
 def current_agent_sessions(processes, runs):
     """Group only verified session/process IDs or explicitly confirmed links."""
     by_pid={p["pid"]:p for p in processes["processes"]}
     run_by_id={run["id"]:run for run in runs}
+    valid_runs=claude_run_ids()
     result={}
     with store.lock:
         links=[dict(row) for row in store.conn.execute(
@@ -237,12 +245,12 @@ def current_agent_sessions(processes, runs):
     for run in runs:
         for pid in run.get("pids",[]):
             process=by_pid.get(pid)
-            if process and process["provider"]=="claude":
+            if process and process["provider"]=="claude" and run["id"] in valid_runs:
                 result.setdefault(pid,{})[run["id"]]={**run,"association":"verified"}
     for item in links:
         process=by_pid.get(item["pid"])
         run=run_by_id.get(item["run_id"])
-        if (process and run and process.get("provider")=="claude"
+        if (process and run and run["id"] in valid_runs and process.get("provider")=="claude"
             and process.get("started_at")==item["started_at"]
             and run["id"] not in result.get(item["pid"],{})):
             result.setdefault(item["pid"],{})[run["id"]]={
@@ -266,6 +274,8 @@ def _associate_agent_session(data:AgentSessionLinkIn):
                                (data.run_id,)).fetchone()
         if not row:
             raise HTTPException(404,"Session was not found")
+        if data.run_id not in claude_run_ids():
+            raise HTTPException(400,"Only Claude sessions can be linked to Claude processes")
         store.conn.execute("""
             INSERT INTO agent_session_links(provider,pid,started_at,run_id,linked_at)
             VALUES('claude',?,?,?,?)
@@ -292,6 +302,15 @@ def build_dashboard():
     runs, processes = classified_runs()
     manual = current_manual_links(processes)
     focus = current_focus(processes)
+    sessions = current_agent_sessions(processes,runs)
+    tree = build_process_tree(processes["processes"],
+                              processes["process_relationships"],runs,manual)
+    def decorate(nodes):
+        for node in nodes:
+            if node["provider"]=="claude":
+                node["sessions"]=sessions.get(str(node["pid"]),[])
+            decorate(node.get("children",[]))
+    decorate(tree["roots"])
     return {
         "runs": runs,
         "processes": {
@@ -301,12 +320,11 @@ def build_dashboard():
             "unmatched_processes": processes["unmatched_processes"],
             "process_relationships": processes["process_relationships"],
         },
-        "topology": build_process_tree(
-            processes["processes"], processes["process_relationships"], runs, manual
-        ),
+        "topology":tree,
+        "claude_run_ids": sorted(claude_run_ids()),
         "focus": focus,
         "manual_links": manual,
-        "agent_sessions": current_agent_sessions(processes,runs),
+        "agent_sessions": sessions,
         "checked_at": processes["checked_at"],
     }
 
