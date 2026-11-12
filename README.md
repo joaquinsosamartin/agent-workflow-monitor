@@ -615,3 +615,50 @@ orchestrator/executor identities. Restarting a CLI process may therefore
 require selecting and confirming links again.
 
 No GitHub Actions were added or executed.
+
+## Multiple Claude sessions per associated agent (November 2026)
+
+A Claude CLI process and a Claude **conversation/session** are different
+entities. Previously the UI showed session titles in global history and
+could display an agent with zero metrics even when its JSONL conversations
+had usage data. Now:
+
+1. Select your main Codex and associate its Claude processes as before.
+2. Under each **Claude · PID** node, expand the list of correlated sessions.
+   Sessions with a verified CLI session ID appear automatically.
+3. For an active Claude with uncorrelated transcript records, select
+   **Vincular sesión** and explicitly choose the matching Claude
+   conversation; multiple conversations can belong to the same live PID.
+4. Click a session to open its full **Agent Execution** workflow. A
+   confirmed manual association can be undone using **Desvincular sesión**.
+5. Sessions that are attached to agents no longer appear redundantly in
+   the collapsed historical list. Unlinked conversations stay there until
+   they are identified.
+
+The right-hand Claude card now aggregates input/output tokens, known
+reported/estimated USD costs and completed/total recorded steps **only
+from sessions actually attached to that Claude**. The Codex orquestrator
+card can also summarize those attached Claude sessions without counting
+duplicate session IDs; it does **not** claim those totals are Codex's own
+usage. Unknown and estimated costs are labeled, never fabricated.
+
+Backend changes:
+- `agent_session_links` stores confirmed Claude PID/session relations,
+  including the Windows process creation time to prevent PID reuse.
+- `GET /api/dashboard` includes `agent_sessions`, `session_metrics`
+  and nested `topology.roots[].children[].sessions`.
+- `POST /api/topology/agent-sessions` associates a verified Claude run
+  with an active Claude PID (authenticated).
+- `DELETE /api/topology/agent-sessions/{run_id}` removes a manually
+  confirmed link (authenticated).
+- If an explicit CLI resume identifier verifies a session under another
+  process, that verified mapping takes precedence over a previous manual
+  association.
+
+This design does **not** guess which Claude agent owns a conversation by
+matching project folder, timestamps or natural-language task titles.
+Provider integrations will eventually supply signed/verified correlation
+metadata so manual linking is no longer necessary.
+
+Update with `git pull`, restart Python, and press `Ctrl+F5`.
+No GitHub Actions were configured or executed.
