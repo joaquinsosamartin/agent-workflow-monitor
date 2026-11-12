@@ -408,7 +408,8 @@ function renderProcessTree(payload,focus=null,manualLinks=[]){
  placeholder.value="";picker.append(placeholder);
  for(const p of codex){
   const o=el("option","","Codex · PID "+p.pid+
-    (p.session?" · "+String(p.session.title).slice(0,40):""));
+    (p.started_at?" · "+dateTime(p.started_at):"")+
+    (p.session?" · "+String(p.session.title).slice(0,32):""));
   o.value=String(p.pid);picker.append(o);
  }
  picker.value=focused?String(focused.pid):"";
@@ -447,7 +448,7 @@ function renderProcessTree(payload,focus=null,manualLinks=[]){
   const btn=el("button","tree-name","↳ ✧ Claude · PID "+p.pid);
   btn.onclick=()=>showProcessDetails(p);
   row.append(btn);
-  txt(row,"div","tree-meta",p.session?.title||"Proceso vivo · sesión sin identificar");
+  txt(row,"div","tree-meta",p.session?.title?String(p.session.title).slice(0,110):"Proceso vivo · sesión sin identificar");
   const relationship=p.relation==="user_confirmed"?"Asociación confirmada":"Parentesco de procesos observado";
   txt(row,"div","tree-pill",relationship);
   if(p.relation==="user_confirmed"){
