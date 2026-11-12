@@ -229,7 +229,7 @@ def claude_run_ids():
     with store.lock:
         return {row[0] for row in store.conn.execute("""
             SELECT run_id FROM observer_files WHERE provider='claude'
-            UNION SELECT run_id FROM nodes WHERE provider='claude'
+            UNION SELECT id AS run_id FROM runs WHERE title LIKE 'Claude Mod · %'
         """)}
 
 def current_agent_sessions(processes, runs):
@@ -247,7 +247,10 @@ def current_agent_sessions(processes, runs):
             process=by_pid.get(pid)
             if process and process["provider"]=="claude" and run["id"] in valid_runs:
                 result.setdefault(pid,{})[run["id"]]={**run,"association":"verified"}
+    verified_run_ids={rid for items in result.values() for rid in items}
     for item in links:
+        if item["run_id"] in verified_run_ids:
+            continue
         process=by_pid.get(item["pid"])
         run=run_by_id.get(item["run_id"])
         if (process and run and run["id"] in valid_runs and process.get("provider")=="claude"
@@ -328,7 +331,7 @@ def session_metrics(run_ids):
             statuses={row["status"]:row["count"] for row in nodes}
             result[rid]={
                 "tokens":tokens if usage else None,
-                "cost_usd":str(known_cost) if usage and known_cost else None,
+                "cost_usd":str(known_cost) if usage and any(row["cost_usd"] is not None for row in usage) else None,
                 "cost_partial":unknown_cost,
                 "completed":statuses.get("completed",0),
                 "steps":sum(statuses.values()),
