@@ -313,7 +313,7 @@ def session_metrics(run_ids):
                 (rid,)).fetchall()
             usage=store.conn.execute("""
                 SELECT input_tokens,output_tokens,cached_input_tokens,
-                       reasoning_tokens,cost_usd
+                       reasoning_tokens,cost_usd,cost_source
                 FROM usage WHERE run_id=?
             """,(rid,)).fetchall()
             tokens=sum(int(row["input_tokens"])+int(row["output_tokens"])
@@ -333,6 +333,7 @@ def session_metrics(run_ids):
                 "tokens":tokens if usage else None,
                 "cost_usd":str(known_cost) if usage and any(row["cost_usd"] is not None for row in usage) else None,
                 "cost_partial":unknown_cost,
+                "cost_estimated":any(row["cost_source"]=="estimated" for row in usage),
                 "completed":statuses.get("completed",0),
                 "steps":sum(statuses.values()),
                 "usage_records":len(usage),
