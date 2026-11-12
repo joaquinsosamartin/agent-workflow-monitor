@@ -62,6 +62,18 @@ class AgentSessionsTests(unittest.TestCase):
         sessions=self.module.current_agent_sessions({"processes":self.processes},runs)
         self.assertEqual(sessions["20"][0]["association"],"verified")
 
+    def test_verified_session_appears_under_only_verified_process(self):
+        self.module._associate_agent_session(
+            self.module.AgentSessionLinkIn(pid=20,run_id="r1"))
+        runs=self.store.run_list()
+        for run in runs:
+            if run["id"]=="r1":
+                run["pids"]=[21]
+        sessions=self.module.current_agent_sessions(
+            {"processes":self.processes},runs)
+        self.assertEqual(sessions["21"][0]["association"],"verified")
+        self.assertNotIn("20",sessions)
+
     def test_codex_sessions_cannot_be_linked_to_claude(self):
         with self.assertRaises(HTTPException):
             self.module._associate_agent_session(self.module.AgentSessionLinkIn(pid=20,run_id="r3"))
