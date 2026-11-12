@@ -89,6 +89,14 @@ h1{font-size:27px;letter-spacing:-.7px;margin:15px 0 5px}.header{display:flex;al
 .perf-diagnostics{margin-top:18px;color:#bbcee4;font-size:12px;line-height:1.8}
 .perf-error{color:#f7bc9d;font-size:12px;margin-top:8px}
 @media(max-width:900px){.perf-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.perf-charts{grid-template-columns:1fr}}
+
+.focus-control{margin-bottom:14px}
+.focus-control .tree-selector{font-size:12px;padding:9px;border-color:#688fbc}
+.agent-choice{display:flex;align-items:flex-start;gap:9px;padding:9px 4px;font-size:11px;color:#c7dbf2;overflow-wrap:anywhere}
+.agent-choice input{accent-color:#85baff;margin-top:3px}
+.agent-choices{margin:10px 0;max-height:245px;overflow:auto;border:1px solid #344e6a;border-radius:9px;padding:5px}
+.tree-root>.tree-name{margin:5px 0 10px;text-align:left}
+.tree-name.is-selected{color:#aad2ff;text-decoration:underline}
 </style></head>
 <body><div class="layout"><aside><div class="brand">◇ Agent Workflow <span>Monitor</span>
 <div class="brand-byline">made with <span class="heart" aria-label="love">❤️</span> by <a href="https://joaquinsosa.es" target="_blank" rel="noopener noreferrer">joaquinsosa.es</a></div></div>
@@ -362,96 +370,151 @@ function showProcessDetails(p,refreshTree=true){
  txt(view,"div","footer","◉ SQLite local · Procesos vivos · Solo métricas verificadas");
  if(refreshTree)refreshProcessTree().catch(console.error);
 }
-function renderProcessTree(payload){
- const box=document.querySelector("#process-tree");
- const sig=JSON.stringify(payload.roots);
- if(treeSignature===sig)return;
- treeSignature=sig;
- box.replaceChildren();
- const roots=payload.roots||[];
- const allProcesses=[];
- const collect=(list)=>list.forEach(p=>{allProcesses.push(p);collect(p.children||[])});
- collect(roots);
- const codexProcesses=allProcesses.filter(p=>p.provider==="codex");
- if(!roots.length){txt(box,"p","tree-hint","No se han detectado procesos CLI");return}
- txt(box,"div","tree-header",roots.length+" grupos de procesos abiertos · "+payload.linked_sessions+" sesiones identificadas");
- const treeNodes=(items,parent,depth=0)=>{
-  for(const p of items){
-   const wrap=el("div","tree-root");
-   if(depth===0&&p.provider==="codex")wrap.style.borderLeftColor="#70a9f6";
-   const row=el("div","tree-node "+(p.provider==="codex"?"primary":"claude")+(detailSelection.type==="process"&&detailSelection.id===p.pid?" is-selected":""));
-   const top=el("div","tree-row");
-   const hasChildren=(p.children||[]).length>0;
-   // Keep agent branches collapsed until explicitly requested.
-   const expanded=processTreeOpened.has(p.pid);
-   const toggle=el("button","tree-toggle",hasChildren?(expanded?"▾":"▸"):"•");
-   toggle.disabled=!hasChildren;
-   toggle.setAttribute("aria-expanded",String(expanded&&hasChildren));
-   toggle.onclick=()=>{
-    if(expanded)processTreeOpened.delete(p.pid);
-    else processTreeOpened.add(p.pid);
-    treeSignature="";
-    renderProcessTree(payload)
-   };
-   const name=el("button","tree-name",(p.provider==="codex"?"⌘ Codex":"✧ Claude")+" · PID "+p.pid);
-   name.onclick=()=>showProcessDetails(p);
-   top.append(toggle,name);row.append(top);
-   const meta=el("div","tree-meta");
-   if(p.session){
-    txt(meta,"div","tree-pill","Sesión vinculada");
-    txt(meta,"div","",p.session.title);
-    if(p.session.activity)txt(meta,"div","",p.session.activity.title);
-   }else txt(meta,"div","","Sesión sin vincular");
-   if(p.relation)txt(meta,"div","",p.relation==="user_confirmed"?"↳ Vinculación confirmada manualmente":p.relation==="process_parent"?"↳ Proceso hijo":"↳ Proceso descendiente");
-   if(p.provider==="claude"&&codexProcesses.length){
-     if(p.relation==="user_confirmed"){
-       const unlink=el("button","tree-action","Desvincular de Codex");
-       unlink.onclick=async()=>{
-         try{await fetch("/api/topology/links/"+p.pid,{method:"DELETE",headers:{"X-Monitor-Key":key}})
-             .then(x=>{if(!x.ok)throw Error("No se ha podido desvincular")});
-             treeSignature="";await refreshProcessTree(true);
-         }catch(e){alert(e.message)}
-       };
-       meta.append(unlink);
-     }else if(!p.relation){
-       const assign=el("button","tree-action","Asociar manualmente a Codex");
-       assign.onclick=()=>{
-         assign.remove();
-         const choices=el("select","tree-selector");
-         for(const codex of codexProcesses){
-           const option=el("option","", "Codex · PID "+codex.pid);
-           option.value=String(codex.pid);
-           choices.append(option);
-         }
-         const confirm=el("button","tree-action","Confirmar asociación");
-         confirm.onclick=async()=>{
-           try{
-             await post("/api/topology/links",{parent_pid:Number(choices.value),child_pid:p.pid});
-             treeSignature="";await refreshProcessTree(true);
-           }catch(e){alert(e.message)}
-         };
-         meta.append(choices,confirm);
-       };
-       meta.append(assign);
-     }
-   }
-   if(hasChildren)txt(meta,"div","",p.children.length+" procesos descendientes directos en el árbol");
-   row.append(meta);wrap.append(row);
-   if(expanded&&hasChildren){
-     const sub=el("div","tree-children");
-     treeNodes(p.children,sub,depth+1);
-     wrap.append(sub);
-   }
-   parent.append(wrap);
+let processCandidatesOpen=false;
+const processSelection=new Set();
+let currentFocusedPid=null;
+function flatProcesses(roots){
+ const out=[],seen=new Set();
+ function walk(list){
+  for(const p of list||[]){
+   if(seen.has(p.pid))continue;
+   seen.add(p.pid);out.push(p);walk(p.children);
   }
+ }
+ walk(roots);return out;
+}
+function renderProcessTree(payload,focus=null,manualLinks=[]){
+ const box=document.querySelector("#process-tree");
+ const roots=payload.roots||[];
+ const all=flatProcesses(roots);
+ const codex=all.filter(p=>p.provider==="codex").sort((a,b)=>a.pid-b.pid);
+ const claude=all.filter(p=>p.provider==="claude");
+ const focused=focus?codex.find(p=>p.pid===focus.pid&&p.started_at===focus.started_at):null;
+ currentFocusedPid=focused?.pid??null;
+ const signature=JSON.stringify([payload.roots,focus,manualLinks,
+    processCandidatesOpen,[...processSelection].sort(),detailSelection]);
+ if(treeSignature===signature)return;
+ treeSignature=signature;
+ box.replaceChildren();
+ if(!codex.length){
+  txt(box,"p","tree-hint","No hay procesos Codex activos");
+  return;
+ }
+ const control=el("div","focus-control");
+ txt(control,"div","tree-header","ORQUESTADOR DE TRABAJO");
+ const picker=el("select","tree-selector");
+ picker.setAttribute("aria-label","Seleccionar proceso Codex principal");
+ let placeholder=el("option","","Selecciona tu Codex activo…");
+ placeholder.value="";picker.append(placeholder);
+ for(const p of codex){
+  const o=el("option","","Codex · PID "+p.pid+
+    (p.session?" · "+String(p.session.title).slice(0,40):""));
+  o.value=String(p.pid);picker.append(o);
+ }
+ picker.value=focused?String(focused.pid):"";
+ picker.onchange=async()=>{
+  try{
+   if(picker.value)await post("/api/topology/focus",{pid:Number(picker.value)});
+   else await fetch("/api/topology/focus",{method:"DELETE",
+       headers:{"X-Monitor-Key":key}}).then(resp=>{
+         if(!resp.ok)throw Error("No se pudo quitar el orquestador");
+       });
+   dashboardFetchedAt=0;treeSignature="";
+   const data=await getDashboard(true);
+   renderProcessTree(data.topology,data.focus,data.manual_links||[]);
+   const main=flatProcesses(data.topology.roots||[]).find(p=>p.pid===data.focus?.pid);
+   if(main)showProcessDetails(main,false);
+  }catch(e){alert(e.message);treeSignature="";await refreshProcessTree(true)}
  };
- treeNodes(roots,box);
- txt(box,"div","tree-hint","Solo procesos vivos, agrupados por parentesco. Un grupo no equivale necesariamente a una sesión; los registros antiguos están ocultos.");
+ control.append(picker);
+ txt(control,"p","tree-hint","Solo mostraremos este Codex y los agentes asociados. Los demás procesos quedan ocultos.");
+ box.append(control);
+ if(!focused){
+  txt(box,"p","tree-hint","Selecciona el Codex que estás usando. No podemos identificarlo con seguridad únicamente por el PID.");
+  return;
+ }
+ const group=el("div","tree-root");
+ group.style.borderLeftColor="#70a9f6";
+ const main=el("button","tree-name "+(detailSelection.id===focused.pid?"is-selected":""),
+               "⌘ Codex · PID "+focused.pid+" · Orquestador");
+ main.onclick=()=>showProcessDetails(focused);
+ group.append(main);
+ if(focused.session)txt(group,"div","tree-pill",String(focused.session.title).slice(0,100));
+ const related=coordinatedAgents(focused).map(x=>x.node);
+ const known=new Set(related.map(x=>x.pid));
+ for(const p of related){
+  const row=el("div","tree-node claude"+(detailSelection.type==="process"&&detailSelection.id===p.pid?" is-selected":""));
+  const btn=el("button","tree-name","↳ ✧ Claude · PID "+p.pid);
+  btn.onclick=()=>showProcessDetails(p);
+  row.append(btn);
+  txt(row,"div","tree-meta",p.session?.title||"Proceso vivo · sesión sin identificar");
+  const relationship=p.relation==="user_confirmed"?"Asociación confirmada":"Parentesco de procesos observado";
+  txt(row,"div","tree-pill",relationship);
+  if(p.relation==="user_confirmed"){
+   const unlink=el("button","tree-action","Desasociar");
+   unlink.onclick=async()=>{
+    try{
+     const response=await fetch("/api/topology/links/"+p.pid,{
+       method:"DELETE",headers:{"X-Monitor-Key":key}});
+     if(!response.ok)throw Error("No se pudo desasociar Claude");
+     dashboardFetchedAt=0;treeSignature="";
+     await refreshProcessTree(true);
+    }catch(e){alert(e.message)}
+   };
+   row.append(unlink);
+  }
+  group.append(row);
+ }
+ if(!related.length)txt(group,"p","tree-hint","Todavía no hay agentes asociados a este Codex.");
+ box.append(group);
+ const linkedElsewhere=new Set((manualLinks||[]).filter(x=>x.parent_pid!==focused.pid).map(x=>x.child_pid));
+ const choices=claude.filter(p=>!known.has(p.pid)&&!linkedElsewhere.has(p.pid));
+ const action=el("button","session-header");
+ action.type="button";
+ action.textContent=(processCandidatesOpen?"▾ ":"▸ ")+"ASOCIAR CLAUDE ("+choices.length+" disponibles)";
+ action.setAttribute("aria-expanded",String(processCandidatesOpen));
+ action.onclick=()=>{
+  processCandidatesOpen=!processCandidatesOpen;
+  treeSignature="";renderProcessTree(payload,focus,manualLinks);
+ };
+ box.append(action);
+ if(processCandidatesOpen){
+  if(!choices.length)txt(box,"p","tree-hint","No hay otros Claude detectados.");
+  else{
+   txt(box,"p","tree-hint","Marca únicamente los Claude que pertenecen a esta ejecución. No se asociarán automáticamente por horario.");
+   const selectionArea=el("div","agent-choices");
+   for(const p of choices){
+    const item=el("label","agent-choice");
+    const input=document.createElement("input");
+    input.type="checkbox";input.checked=processSelection.has(p.pid);
+    input.onchange=()=>{
+     if(input.checked)processSelection.add(p.pid);else processSelection.delete(p.pid);
+    };
+    const label=el("span","", "Claude · PID "+p.pid+
+      (p.session?" · "+String(p.session.title).slice(0,55):""));
+    item.append(input,label);selectionArea.append(item);
+   }
+   box.append(selectionArea);
+   const confirm=el("button","btn","Asociar seleccionados");
+   confirm.onclick=async()=>{
+    const selected=choices.filter(p=>processSelection.has(p.pid)).map(p=>p.pid);
+    if(!selected.length){alert("Selecciona al menos un Claude");return}
+    try{
+     await post("/api/topology/links/batch",{parent_pid:focused.pid,child_pids:selected});
+     processSelection.clear();processCandidatesOpen=false;treeSignature="";dashboardFetchedAt=0;
+     await refreshProcessTree(true);
+    }catch(e){alert(e.message)}
+   };
+   box.append(confirm);
+  }
+ }
+ txt(box,"p","tree-hint","Las asociaciones confirmadas se conservan mientras sigan vivos esos mismos procesos. Al reiniciarse se necesita una nueva identificación.");
 }
 async function refreshProcessTree(force=false){
  try{
-  const topology=(await getDashboard(force)).topology;
-  renderProcessTree(topology);
+  const dashboard=await getDashboard(force);
+  const topology=dashboard.topology;
+  renderProcessTree(topology,dashboard.focus,dashboard.manual_links||[]);
   if(detailSelection.type==="process"){
    const find=(nodes)=>{for(const p of nodes||[]){
      if(p.pid===detailSelection.id)return p;
