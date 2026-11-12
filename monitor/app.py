@@ -209,6 +209,7 @@ def build_dashboard():
     from .topology import build_process_tree
     runs, processes = classified_runs()
     manual = current_manual_links(processes)
+    focus = current_focus(processes)
     return {
         "runs": runs,
         "processes": {
@@ -221,6 +222,8 @@ def build_dashboard():
         "topology": build_process_tree(
             processes["processes"], processes["process_relationships"], runs, manual
         ),
+        "focus": focus,
+        "manual_links": manual,
         "checked_at": processes["checked_at"],
     }
 
@@ -368,6 +371,92 @@ with store.lock, store.conn:
             PRIMARY KEY(child_pid, child_started_at)
         )
     """)
+
+class FocusIn(BaseModel):
+    pid: int=Field(gt=0)
+
+with store.lock, store.conn:
+    store.conn.execute("""
+        CREATE TABLE IF NOT EXISTS monitor_focus (
+            id INTEGER PRIMARY KEY CHECK(id=1),
+            pid INTEGER NOT NULL, started_at TEXT NOT NULL
+        )
+    """)
+
+def current_focus(processes):
+    """A focus is an explicitly selected live process, never a guessed session."""
+    by_pid={p["pid"]:p for p in processes["processes"]}
+    with store.lock:
+        row=store.conn.execute(
+            "SELECT pid,started_at FROM monitor_focus WHERE id=1"
+        ).fetchone()
+    if not row:
+        return None
+    p=by_pid.get(row["pid"])
+    if not p or p.get("provider")!="codex" or p.get("started_at")!=row["started_at"]:
+        return None
+    return {"pid":p["pid"],"started_at":p["started_at"]}
+
+@app.post('/api/topology/focus',dependencies=[Depends(authorize)])
+async def set_focus(data:FocusIn):
+    return await bounded(_set_focus,data,operation="focus set")
+
+def _set_focus(data:FocusIn):
+    snap=process_registry.snapshot()
+    chosen=next((p for p in snap["processes"]
+                 if p["pid"]==data.pid and p["provider"]=="codex"),None)
+    if not chosen or not chosen.get("started_at"):
+        raise HTTPException(400,"Codex process must be running")
+    with store.lock, store.conn:
+        store.conn.execute("""
+            INSERT INTO monitor_focus(id,pid,started_at) VALUES(1,?,?)
+            ON CONFLICT(id) DO UPDATE SET pid=excluded.pid,
+                started_at=excluded.started_at
+        """,(chosen["pid"],chosen["started_at"]))
+    return {"focus":{"pid":chosen["pid"],"started_at":chosen["started_at"]}}
+
+@app.delete('/api/topology/focus',dependencies=[Depends(authorize)])
+async def clear_focus():
+    return await bounded(_clear_focus,operation="focus clear")
+
+def _clear_focus():
+    with store.lock, store.conn:
+        store.conn.execute("DELETE FROM monitor_focus WHERE id=1")
+    return {"focus":None}
+
+class LinkManyIn(BaseModel):
+    parent_pid:int=Field(gt=0)
+    child_pids:list[int]=Field(min_length=1,max_length=80)
+
+@app.post('/api/topology/links/batch',dependencies=[Depends(authorize)])
+async def link_many(data:LinkManyIn):
+    return await bounded(_link_many,data,operation="topology links batch")
+
+def _link_many(data:LinkManyIn):
+    """Validate all process identities before performing any writes."""
+    snap=process_registry.snapshot()
+    by_pid={p["pid"]:p for p in snap["processes"]}
+    parent=by_pid.get(data.parent_pid)
+    if not parent or parent["provider"]!="codex" or not parent.get("started_at"):
+        raise HTTPException(400,"Selected Codex is not running")
+    children=[]
+    for pid in dict.fromkeys(data.child_pids):
+        child=by_pid.get(pid)
+        if not child or child["provider"]!="claude" or not child.get("started_at"):
+            raise HTTPException(400,f"Claude process {pid} is not running")
+        children.append(child)
+    from .db import utc
+    with store.lock,store.conn:
+        for child in children:
+            store.conn.execute("""
+                INSERT INTO process_links(child_pid,child_started_at,parent_pid,parent_started_at,created_at)
+                VALUES(?,?,?,?,?)
+                ON CONFLICT(child_pid,child_started_at)
+                DO UPDATE SET parent_pid=excluded.parent_pid,
+                              parent_started_at=excluded.parent_started_at,
+                              created_at=excluded.created_at
+            """,(child["pid"],child["started_at"],parent["pid"],parent["started_at"],utc()))
+    return {"linked":len(children),"parent_pid":parent["pid"]}
 
 def current_manual_links(processes):
     by_pid={p["pid"]:p for p in processes["processes"]}
