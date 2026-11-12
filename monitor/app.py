@@ -205,6 +205,88 @@ def classified_runs():
     process_state = process_registry.classify(runs, observer_files)
     return runs, process_state
 
+class AgentSessionLinkIn(BaseModel):
+    pid: int=Field(gt=0)
+    run_id: str=Field(min_length=1,max_length=128)
+
+with store.lock,store.conn:
+    store.conn.execute("""
+        CREATE TABLE IF NOT EXISTS agent_session_links (
+            provider TEXT NOT NULL,
+            pid INTEGER NOT NULL,
+            started_at TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            linked_at TEXT NOT NULL,
+            PRIMARY KEY(provider,run_id)
+        )
+    """)
+    store.conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_agent_session_links_pid
+        ON agent_session_links(provider,pid,started_at)
+    """)
+
+def current_agent_sessions(processes, runs):
+    """Group only verified session/process IDs or explicitly confirmed links."""
+    by_pid={p["pid"]:p for p in processes["processes"]}
+    run_by_id={run["id"]:run for run in runs}
+    result={}
+    with store.lock:
+        links=[dict(row) for row in store.conn.execute(
+            "SELECT * FROM agent_session_links WHERE provider='claude'"
+        )]
+    for run in runs:
+        for pid in run.get("pids",[]):
+            process=by_pid.get(pid)
+            if process and process["provider"]=="claude":
+                result.setdefault(pid,{})[run["id"]]={**run,"association":"verified"}
+    for item in links:
+        process=by_pid.get(item["pid"])
+        run=run_by_id.get(item["run_id"])
+        if (process and run and process.get("provider")=="claude"
+            and process.get("started_at")==item["started_at"]
+            and run["id"] not in result.get(item["pid"],{})):
+            result.setdefault(item["pid"],{})[run["id"]]={
+                **run,"association":"user_confirmed"
+            }
+    return {str(pid):sorted(items.values(),key=lambda x:x.get("updated_at",""),reverse=True)
+            for pid,items in result.items()}
+
+@app.post('/api/topology/agent-sessions',dependencies=[Depends(authorize)])
+async def associate_agent_session(data:AgentSessionLinkIn):
+    return await bounded(_associate_agent_session,data,operation="agent session link")
+
+def _associate_agent_session(data:AgentSessionLinkIn):
+    snap=process_registry.snapshot()
+    process=next((p for p in snap["processes"]
+                  if p["pid"]==data.pid and p.get("provider")=="claude"),None)
+    if not process or not process.get("started_at"):
+        raise HTTPException(400,"Claude process is not running")
+    with store.lock,store.conn:
+        row=store.conn.execute("SELECT id FROM runs WHERE id=?",
+                               (data.run_id,)).fetchone()
+        if not row:
+            raise HTTPException(404,"Session was not found")
+        store.conn.execute("""
+            INSERT INTO agent_session_links(provider,pid,started_at,run_id,linked_at)
+            VALUES('claude',?,?,?,?)
+            ON CONFLICT(provider,run_id) DO UPDATE SET
+                pid=excluded.pid,started_at=excluded.started_at,
+                linked_at=excluded.linked_at
+        """,(process["pid"],process["started_at"],data.run_id,
+             __import__("datetime").datetime.now(
+                 __import__("datetime").timezone.utc).isoformat()))
+    return {"linked":True,"pid":data.pid,"run_id":data.run_id}
+
+@app.delete('/api/topology/agent-sessions/{run_id}',dependencies=[Depends(authorize)])
+async def unlink_agent_session(run_id:str):
+    return await bounded(_unlink_agent_session,run_id,operation="agent session unlink")
+
+def _unlink_agent_session(run_id:str):
+    with store.lock,store.conn:
+        store.conn.execute("DELETE FROM agent_session_links WHERE provider='claude' AND run_id=?",
+                           (run_id,))
+    return {"unlinked":True,"run_id":run_id}
+
 def build_dashboard():
     from .topology import build_process_tree
     runs, processes = classified_runs()
@@ -224,6 +306,7 @@ def build_dashboard():
         ),
         "focus": focus,
         "manual_links": manual,
+        "agent_sessions": current_agent_sessions(processes,runs),
         "checked_at": processes["checked_at"],
     }
 
