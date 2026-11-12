@@ -418,12 +418,16 @@ function showProcessDetails(p,refreshTree=true){
  txt(view,"p","muted",linked?(p.session.project||"Local")+" · Workflow de agentes":provider+" · Proceso detectado localmente");
  txt(view,"div","timestamp","Iniciado · "+dateTime(p.started_at));
  const cards=el("div","cards");
- const sessions=agentSessions(p);
+ const ownSessions=agentSessions(p);
+ const sessions=p.provider==="codex"
+   ?[...new Map(coordinatedAgents(p).flatMap(x=>agentSessions(x.node)).map(x=>[x.id,x])).values()]
+   :ownSessions;
  const total=sessionTotalMetrics(sessions);
+ const origin=p.provider==="codex"?"Agentes asociados":"Sesiones vinculadas";
  const metrics=[
-   [total.costs===null?"—":"$"+total.costs.toFixed(4),"Coste USD"+(total.partial?" · parcial":"")+" · "+sessions.length+" sesiones"],
-   [total.tokens===null?"—":compact(total.tokens),"Tokens entrada + salida"],
-   [total.steps?total.completed+"/"+total.steps:"—","Pasos de sesiones asociadas"]
+   [total.costs===null?"—":"$"+total.costs.toFixed(4),"Coste USD"+(total.partial?" · parcial":"")+" · "+origin.toLowerCase()],
+   [total.tokens===null?"—":compact(total.tokens),"Tokens entrada + salida · "+origin],
+   [total.steps?total.completed+"/"+total.steps:"—","Pasos registrados · "+origin]
  ];
  for(const [value,caption] of metrics){
    const card=el("div","card");
@@ -739,7 +743,9 @@ async function select(id){
  lastSnapshotSignature="";lastRunSignature="";
  const runs=(await getDashboard()).runs;
  if(selectionVersion!==version||detailSelection.type!=="session")return;
- if(!historyExpandedInSidebar)historyExpandedInSidebar=true;
+ const associated=Object.values((await getDashboard()).agent_sessions||{})
+   .some(items=>items.some(run=>run.id===id));
+ if(!associated&&!historyExpandedInSidebar)historyExpandedInSidebar=true;
  await refresh(true);
  if(selectionVersion!==version||detailSelection.type!=="session")return;
  await listRunsNoSelect();
