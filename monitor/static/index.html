@@ -97,6 +97,13 @@ h1{font-size:27px;letter-spacing:-.7px;margin:15px 0 5px}.header{display:flex;al
 .agent-choices{margin:10px 0;max-height:245px;overflow:auto;border:1px solid #344e6a;border-radius:9px;padding:5px}
 .tree-root>.tree-name{margin:5px 0 10px;text-align:left}
 .tree-name.is-selected{color:#aad2ff;text-decoration:underline}
+
+.agent-session-list{margin:9px 0 11px 15px;display:grid;gap:6px}
+.agent-session{border-left:2px solid #486c91;border-radius:5px;padding:6px 10px;background:#122236}
+.agent-session.is-selected{outline:1px solid #8bb7f0}
+.agent-session-title{background:transparent;border:0;padding:0;text-align:left;font-size:11px;font-weight:650;color:#b9d9ff;overflow-wrap:anywhere;width:100%}
+.agent-session-title:hover{text-decoration:underline}
+.agent-session-meta{font-size:10px;color:#91aac7;line-height:1.5;margin-top:4px;overflow-wrap:anywhere}
 </style></head>
 <body><div class="layout"><aside><div class="brand">◇ Agent Workflow <span>Monitor</span>
 <div class="brand-byline">made with <span class="heart" aria-label="love">❤️</span> by <a href="https://joaquinsosa.es" target="_blank" rel="noopener noreferrer">joaquinsosa.es</a></div></div>
@@ -248,6 +255,87 @@ function coordinatedAgents(process){
  for(const child of process.children||[])visit(child,1);
  return result;
 }
+let sessionChoicesOpen=new Set();
+function agentSessions(agent){
+ return Array.isArray(agent.sessions)?agent.sessions:[];
+}
+function sessionTotalMetrics(items){
+ const metrics=items.map(x=>x.metrics||{});
+ const withTokens=metrics.filter(x=>Number.isFinite(Number(x.tokens))&&x.tokens!==null);
+ const knownCosts=metrics.map(x=>x.cost_usd).filter(x=>x!==null&&x!==undefined&&x!=="");
+ const tokens=withTokens.length?withTokens.reduce((n,x)=>n+Number(x.tokens),0):null;
+ const costs=knownCosts.length?knownCosts.reduce((n,c)=>n+Number(c),0):null;
+ return {
+  tokens, costs,
+  partial:metrics.some(x=>x.cost_partial)||knownCosts.length<metrics.length,
+  completed:metrics.reduce((n,x)=>n+(Number(x.completed)||0),0),
+  steps:metrics.reduce((n,x)=>n+(Number(x.steps)||0),0)
+ };
+}
+function sessionRows(target,agent,compactView=false){
+ const sessions=agentSessions(agent);
+ if(!sessions.length){
+  txt(target,"p","tree-hint","Sin sesiones correlacionadas. Usa «Vincular sesión» para asociarlas.");
+  return;
+ }
+ for(const item of sessions){
+  const row=el("div","agent-session"+(detailSelection.type==="session"&&detailSelection.id===item.id?" is-selected":""));
+  const button=el("button","agent-session-title",item.title||"Sesión "+item.id.slice(0,10));
+  button.onclick=()=>select(item.id);
+  row.append(button);
+  const details=item.metrics||{};
+  txt(row,"div","agent-session-meta",
+      (item.association==="verified"?"Identidad verificada":"Asociación confirmada")+
+      " · "+(details.tokens==null?"Tokens sin datos":compact(details.tokens)+" tokens")+
+      " · "+(details.cost_usd==null?"Coste no disponible":"$"+Number(details.cost_usd).toFixed(4)));
+  if(!compactView){
+   txt(row,"div","agent-session-meta",dateTime(item.updated_at)+
+       " · "+(details.steps||0)+" pasos");
+   if(item.association==="user_confirmed"){
+    const unlink=el("button","tree-action","Desvincular sesión");
+    unlink.onclick=async()=>{
+     try{
+      const response=await fetch("/api/topology/agent-sessions/"+encodeURIComponent(item.id),{
+       method:"DELETE",headers:{"X-Monitor-Key":key}});
+      if(!response.ok)throw Error("No se pudo desvincular la sesión");
+      dashboardFetchedAt=0;treeSignature="";await refreshProcessTree(true);
+     }catch(e){alert(e.message)}
+    };
+    row.append(unlink);
+   }
+  }
+  target.append(row);
+ }
+}
+function agentLinkPicker(target,agent,runs,associated){
+ const toggle=el("button","tree-action",sessionChoicesOpen.has(agent.pid)?"Cancelar selección":"Vincular sesión");
+ toggle.onclick=()=>{
+  if(sessionChoicesOpen.has(agent.pid))sessionChoicesOpen.delete(agent.pid);
+  else sessionChoicesOpen.add(agent.pid);
+  treeSignature="";void refreshProcessTree(true);
+ };
+ target.append(toggle);
+ if(!sessionChoicesOpen.has(agent.pid))return;
+ const picker=el("select","tree-selector");
+ picker.setAttribute("aria-label","Sesión Claude para PID "+agent.pid);
+ const defaultOption=el("option","","Selecciona una sesión Claude…");
+ defaultOption.value="";picker.append(defaultOption);
+ for(const run of runs){
+  if(associated.has(run.id))continue;
+  const option=el("option","",(run.title||"Sin título").slice(0,75)+" · "+dateTime(run.updated_at));
+  option.value=run.id;picker.append(option);
+ }
+ const apply=el("button","tree-action","Confirmar vínculo");
+ apply.onclick=async()=>{
+  if(!picker.value){alert("Selecciona una sesión");return}
+  try{
+   await post("/api/topology/agent-sessions",{pid:agent.pid,run_id:picker.value});
+   sessionChoicesOpen.delete(agent.pid);dashboardFetchedAt=0;treeSignature="";
+   await refreshProcessTree(true);
+  }catch(e){alert(e.message)}
+ };
+ target.append(picker,apply);
+}
 function addCoordinatedAgents(view,process){
  if(process.provider!=="codex")return;
  const agents=coordinatedAgents(process);
@@ -267,6 +355,10 @@ function addCoordinatedAgents(view,process){
    txt(card,"div","agent-card-meta","PID "+agent.pid+" · "+(
      agent.relation==="user_confirmed"?"Asociación manual":
      agent.relation==="process_parent"?"Proceso hijo observado":"Proceso descendiente"));
+   const metrics=sessionTotalMetrics(agentSessions(agent));
+   txt(card,"div","agent-card-meta",agentSessions(agent).length+" sesiones · "+
+      (metrics.tokens===null?"Tokens no disponibles":compact(metrics.tokens)+" tokens")+
+      " · "+(metrics.costs===null?"Coste sin datos":"$"+metrics.costs.toFixed(4)+(metrics.partial?" parcial":"")));
    if(agent.session?.activity?.title){
      txt(card,"div","agent-card-meta","Última acción · "+agent.session.activity.title);
    }
@@ -293,11 +385,7 @@ function addCoordinatedAgents(view,process){
      txt(info,"div","","Tokens y coste · "+(agent.session?"Consultar sesión vinculada":"Sin datos verificables"));
      if((agent.children||[]).length)txt(info,"div","",
        "Subprocesos adicionales · "+agent.children.length+" (no se contabilizan como sesiones independientes)");
-     if(agent.session){
-       const sessionButton=el("button","tree-action","Abrir workflow de la sesión");
-       sessionButton.onclick=()=>select(agent.session.id);
-       info.append(sessionButton);
-     }
+     sessionRows(info,agent,true);
      card.append(info);
    }
    section.append(card);
@@ -330,10 +418,12 @@ function showProcessDetails(p,refreshTree=true){
  txt(view,"p","muted",linked?(p.session.project||"Local")+" · Workflow de agentes":provider+" · Proceso detectado localmente");
  txt(view,"div","timestamp","Iniciado · "+dateTime(p.started_at));
  const cards=el("div","cards");
+ const sessions=agentSessions(p);
+ const total=sessionTotalMetrics(sessions);
  const metrics=[
-   ["—","Coste USD · sin datos atribuidos"],
-   ["—","Tokens · sin sesión atribuida"],
-   ["—","Pasos · sin plan disponible"]
+   [total.costs===null?"—":"$"+total.costs.toFixed(4),"Coste USD"+(total.partial?" · parcial":"")+" · "+sessions.length+" sesiones"],
+   [total.tokens===null?"—":compact(total.tokens),"Tokens entrada + salida"],
+   [total.steps?total.completed+"/"+total.steps:"—","Pasos de sesiones asociadas"]
  ];
  for(const [value,caption] of metrics){
    const card=el("div","card");
@@ -359,13 +449,18 @@ function showProcessDetails(p,refreshTree=true){
    p.relation==="user_confirmed"?"Vinculación manual con el orquestador":
    p.relation==="process_parent"?"Relación padre-hijo observada":"Relación de procesos descendientes");
  step.append(circle,content);timeline.append(step);view.append(timeline);
- if(linked){
-   const btn=el("button","btn","Abrir workflow y consumo de la sesión vinculada");
+ if(p.provider==="claude"){
+   txt(view,"div","eyebrow","SESIONES DEL AGENTE · "+sessions.length);
+   const all=el("div","agent-session-list");
+   sessionRows(all,p);
+   view.append(all);
+ }else if(linked){
+   const btn=el("button","btn","Abrir workflow de la sesión vinculada");
    btn.onclick=()=>select(p.session.id);
    view.append(btn);
- }else{
-   txt(view,"p","tree-hint","No hay una sesión JSONL correlacionada con este PID. Los tokens, costes y subpasos no se pueden atribuir de forma fiable.");
  }
+ if(!sessions.length&&p.provider==="claude")
+   txt(view,"p","tree-hint","El proceso no aporta por sí solo datos de coste o tokens: vincula sus sesiones para mostrar métricas reales.");
  addCoordinatedAgents(view,p);
  txt(view,"div","footer","◉ SQLite local · Procesos vivos · Solo métricas verificadas");
  if(refreshTree)refreshProcessTree().catch(console.error);
@@ -383,7 +478,7 @@ function flatProcesses(roots){
  }
  walk(roots);return out;
 }
-function renderProcessTree(payload,focus=null,manualLinks=[]){
+function renderProcessTree(payload,focus=null,manualLinks=[],runs=[],claudeRunIds=[]){
  const box=document.querySelector("#process-tree");
  const roots=payload.roots||[];
  const all=flatProcesses(roots);
@@ -392,7 +487,7 @@ function renderProcessTree(payload,focus=null,manualLinks=[]){
  const focused=focus?codex.find(p=>p.pid===focus.pid&&p.started_at===focus.started_at):null;
  currentFocusedPid=focused?.pid??null;
  const signature=JSON.stringify([payload.roots,focus,manualLinks,
-    processCandidatesOpen,[...processSelection].sort(),detailSelection]);
+    processCandidatesOpen,[...processSelection].sort(),detailSelection,sessionChoicesOpen.size]);
  if(treeSignature===signature)return;
  treeSignature=signature;
  box.replaceChildren();
@@ -422,7 +517,7 @@ function renderProcessTree(payload,focus=null,manualLinks=[]){
        });
    dashboardFetchedAt=0;treeSignature="";
    const data=await getDashboard(true);
-   renderProcessTree(data.topology,data.focus,data.manual_links||[]);
+   renderProcessTree(data.topology,data.focus,data.manual_links||[],data.runs||[],data.claude_run_ids||[]);
    const main=flatProcesses(data.topology.roots||[]).find(p=>p.pid===data.focus?.pid);
    if(main)showProcessDetails(main,false);
   }catch(e){alert(e.message);treeSignature="";await refreshProcessTree(true)}
@@ -448,7 +543,13 @@ function renderProcessTree(payload,focus=null,manualLinks=[]){
   const btn=el("button","tree-name","↳ ✧ Claude · PID "+p.pid);
   btn.onclick=()=>showProcessDetails(p);
   row.append(btn);
-  txt(row,"div","tree-meta",p.session?.title?String(p.session.title).slice(0,110):"Proceso vivo · sesión sin identificar");
+  txt(row,"div","tree-meta",agentSessions(p).length+" sesiones asociadas");
+  const sessionsArea=el("div","agent-session-list");
+  sessionRows(sessionsArea,p);
+  row.append(sessionsArea);
+  const eligibleRuns=runs.filter(x=>claudeRunIds.includes(x.id));
+  const assigned=new Set(flatProcesses(roots).flatMap(agent=>agentSessions(agent).map(x=>x.id)));
+  agentLinkPicker(row,p,eligibleRuns,assigned);
   const relationship=p.relation==="user_confirmed"?"Asociación confirmada":"Parentesco de procesos observado";
   txt(row,"div","tree-pill",relationship);
   if(p.relation==="user_confirmed"){
@@ -476,7 +577,7 @@ function renderProcessTree(payload,focus=null,manualLinks=[]){
  action.setAttribute("aria-expanded",String(processCandidatesOpen));
  action.onclick=()=>{
   processCandidatesOpen=!processCandidatesOpen;
-  treeSignature="";renderProcessTree(payload,focus,manualLinks);
+  treeSignature="";renderProcessTree(payload,focus,manualLinks,runs,claudeRunIds);
  };
  box.append(action);
  if(processCandidatesOpen){
@@ -515,7 +616,7 @@ async function refreshProcessTree(force=false){
  try{
   const dashboard=await getDashboard(force);
   const topology=dashboard.topology;
-  renderProcessTree(topology,dashboard.focus,dashboard.manual_links||[]);
+  renderProcessTree(topology,dashboard.focus,dashboard.manual_links||[],dashboard.runs||[],dashboard.claude_run_ids||[]);
   if(detailSelection.type==="process"){
    const find=(nodes)=>{for(const p of nodes||[]){
      if(p.pid===detailSelection.id)return p;
@@ -533,7 +634,8 @@ async function refreshProcessTree(force=false){
 async function listRunsNoSelect(){
  const box=document.querySelector("#runs");
  const dashboard=await getDashboard();
- const runs=dashboard.runs;
+ const associated=new Set(Object.values(dashboard.agent_sessions||{}).flatMap(items=>items.map(x=>x.id)));
+ const runs=dashboard.runs.filter(r=>!associated.has(r.id));
  const sig=JSON.stringify([historyExpandedInSidebar,selected,detailSelection.type,
    historyExpandedInSidebar ? runs.map(r=>[r.id,r.title,r.status,r.updated_at,r.presence]) : runs.length]);
  if(sig===lastRunSignature)return runs;
