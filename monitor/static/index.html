@@ -268,6 +268,7 @@ function sessionTotalMetrics(items){
  return {
   tokens, costs,
   partial:metrics.some(x=>x.cost_partial)||knownCosts.length<metrics.length,
+  estimated:metrics.some(x=>x.cost_estimated),
   completed:metrics.reduce((n,x)=>n+(Number(x.completed)||0),0),
   steps:metrics.reduce((n,x)=>n+(Number(x.steps)||0),0)
  };
@@ -287,7 +288,7 @@ function sessionRows(target,agent,compactView=false){
   txt(row,"div","agent-session-meta",
       (item.association==="verified"?"Identidad verificada":"Asociación confirmada")+
       " · "+(details.tokens==null?"Tokens sin datos":compact(details.tokens)+" tokens")+
-      " · "+(details.cost_usd==null?"Coste no disponible":"$"+Number(details.cost_usd).toFixed(4)));
+      " · "+(details.cost_usd==null?"Coste no disponible":"$"+Number(details.cost_usd).toFixed(4)+(details.cost_estimated?" estimado":"")+(details.cost_partial?" parcial":"")));
   if(!compactView){
    txt(row,"div","agent-session-meta",dateTime(item.updated_at)+
        " · "+(details.steps||0)+" pasos");
@@ -358,7 +359,7 @@ function addCoordinatedAgents(view,process){
    const metrics=sessionTotalMetrics(agentSessions(agent));
    txt(card,"div","agent-card-meta",agentSessions(agent).length+" sesiones · "+
       (metrics.tokens===null?"Tokens no disponibles":compact(metrics.tokens)+" tokens")+
-      " · "+(metrics.costs===null?"Coste sin datos":"$"+metrics.costs.toFixed(4)+(metrics.partial?" parcial":"")));
+      " · "+(metrics.costs===null?"Coste sin datos":"$"+metrics.costs.toFixed(4)+(metrics.estimated?" estimado":"")+(metrics.partial?" parcial":"")));
    if(agent.session?.activity?.title){
      txt(card,"div","agent-card-meta","Última acción · "+agent.session.activity.title);
    }
@@ -425,7 +426,7 @@ function showProcessDetails(p,refreshTree=true){
  const total=sessionTotalMetrics(sessions);
  const origin=p.provider==="codex"?"Agentes asociados":"Sesiones vinculadas";
  const metrics=[
-   [total.costs===null?"—":"$"+total.costs.toFixed(4),"Coste USD"+(total.partial?" · parcial":"")+" · "+origin.toLowerCase()],
+   [total.costs===null?"—":"$"+total.costs.toFixed(4),"Coste USD"+(total.estimated?" · estimado":"")+(total.partial?" · parcial":"")+" · "+origin.toLowerCase()],
    [total.tokens===null?"—":compact(total.tokens),"Tokens entrada + salida · "+origin],
    [total.steps?total.completed+"/"+total.steps:"—","Pasos registrados · "+origin]
  ];
