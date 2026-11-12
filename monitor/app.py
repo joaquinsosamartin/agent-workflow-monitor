@@ -297,12 +297,57 @@ def _unlink_agent_session(run_id:str):
                            (run_id,))
     return {"unlinked":True,"run_id":run_id}
 
+def session_metrics(run_ids):
+    """Return verified persisted usage, not inferred context-window occupancy."""
+    from decimal import Decimal, InvalidOperation
+    result={}
+    if not run_ids:
+        return result
+    with store.lock:
+        for rid in run_ids:
+            nodes=store.conn.execute(
+                "SELECT status,COUNT(*) AS count FROM nodes WHERE run_id=? GROUP BY status",
+                (rid,)).fetchall()
+            usage=store.conn.execute("""
+                SELECT input_tokens,output_tokens,cached_input_tokens,
+                       reasoning_tokens,cost_usd
+                FROM usage WHERE run_id=?
+            """,(rid,)).fetchall()
+            tokens=sum(int(row["input_tokens"])+int(row["output_tokens"])
+                       for row in usage)
+            known_cost=Decimal("0")
+            unknown_cost=False
+            for row in usage:
+                if row["cost_usd"] is None:
+                    unknown_cost=True
+                else:
+                    try:
+                        known_cost+=Decimal(row["cost_usd"])
+                    except (InvalidOperation,ValueError):
+                        unknown_cost=True
+            statuses={row["status"]:row["count"] for row in nodes}
+            result[rid]={
+                "tokens":tokens if usage else None,
+                "cost_usd":str(known_cost) if usage and known_cost else None,
+                "cost_partial":unknown_cost,
+                "completed":statuses.get("completed",0),
+                "steps":sum(statuses.values()),
+                "usage_records":len(usage),
+            }
+    return result
+
 def build_dashboard():
     from .topology import build_process_tree
     runs, processes = classified_runs()
     manual = current_manual_links(processes)
     focus = current_focus(processes)
     sessions = current_agent_sessions(processes,runs)
+    run_metrics=session_metrics({
+        run["id"] for items in sessions.values() for run in items
+    })
+    for items in sessions.values():
+        for run in items:
+            run["metrics"]=run_metrics.get(run["id"],{})
     tree = build_process_tree(processes["processes"],
                               processes["process_relationships"],runs,manual)
     def decorate(nodes):
@@ -325,6 +370,7 @@ def build_dashboard():
         "focus": focus,
         "manual_links": manual,
         "agent_sessions": sessions,
+        "session_metrics": run_metrics,
         "checked_at": processes["checked_at"],
     }
 
