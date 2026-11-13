@@ -178,6 +178,11 @@ exact child thread IDs and lifecycle states, so a subagent can be shown
 before its own transcript becomes available. Missing transcripts remain
 unlinked and carry **no fabricated token or cost metrics**.
 
+Diagnostic endpoint: `GET http://127.0.0.1:8765/api/codex/agents`.
+It lists only observed Codex thread metadata and their direct/nested
+relations. Use `GET /api/observer` to inspect whether the session
+files are being discovered if this list is empty.
+
 **Windows EXE note:** after pulling a code update, rebuild the executable
 with `./scripts/build-windows.ps1`; simply launching an older file in
 `dist/` will continue using the old parser and UI. The new session
