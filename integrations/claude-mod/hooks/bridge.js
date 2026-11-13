@@ -150,3 +150,15 @@ export async function loadDelegatedExecutions($, planId) {
   const result=await request($,"/api/workflows/"+encodeURIComponent(planId)+"/executions");
   return Array.isArray(result)?result:[];
 }
+
+export async function loadCodexOrchestration($) {
+  // Read-only shared view; never claims Codex subagents belong to Claude.
+  // The web dashboard chooses the focused Codex PID and root session.
+  const dashboard=await request($,"/api/dashboard");
+  return {
+    focus:dashboard.focus||null,
+    selectedRun:dashboard.codex_selected_run||null,
+    tree:dashboard.codex_threads||{roots:[]},
+    metrics:dashboard.codex_metrics||{},
+  };
+}
