@@ -354,11 +354,70 @@ def session_metrics(run_ids):
             }
     return result
 
+from .codex_agents import (
+    initialize as init_codex_threads,
+    snapshot as codex_thread_snapshot,
+    collect_descendants,
+)
+init_codex_threads(store)
+
+class CodexSessionSelection(BaseModel):
+    pid:int=Field(gt=0)
+    run_id:str=Field(min_length=1,max_length=128)
+
+def selected_codex_session(processes,tree):
+    focus=current_focus(processes)
+    if not focus:
+        return None
+    with store.lock:
+        row=store.conn.execute(
+            "SELECT * FROM codex_focus_sessions WHERE id=1"
+        ).fetchone()
+    if row and row["pid"]==focus["pid"] and row["started_at"]==focus["started_at"]:
+        for root in tree["roots"]:
+            if root["run_id"]==row["run_id"] and not root["parent_thread_id"]:
+                return row["run_id"]
+    # Only automatically select a session when its UUID is verified in
+    # the actual live Codex command line and it matches known thread metadata.
+    proc=next((p for p in processes["processes"]
+               if p["pid"]==focus["pid"]),None)
+    session=proc.get("session_id") if proc else None
+    for root in tree["roots"]:
+        if root["thread_id"]==session and not root["parent_thread_id"]:
+            return root["run_id"]
+    return None
+
+@app.post('/api/topology/codex-session',dependencies=[Depends(authorize)])
+async def set_codex_session(data:CodexSessionSelection):
+    return await bounded(_set_codex_session,data,operation="codex session selection")
+
+def _set_codex_session(data:CodexSessionSelection):
+    snap=process_registry.snapshot()
+    focus=current_focus(snap)
+    proc=next((p for p in snap["processes"]
+               if p["pid"]==data.pid and p.get("provider")=="codex"),None)
+    if not focus or not proc or focus["pid"]!=data.pid:
+        raise HTTPException(400,"Select a live Codex orchestrator first")
+    candidates=codex_thread_snapshot(store,store.run_list())["roots"]
+    if not any(p["run_id"]==data.run_id and not p["parent_thread_id"] for p in candidates):
+        raise HTTPException(400,"Unknown root Codex session")
+    with store.lock,store.conn:
+        store.conn.execute("""
+            INSERT INTO codex_focus_sessions(id,pid,started_at,run_id)
+            VALUES(1,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET
+                pid=excluded.pid,started_at=excluded.started_at,
+                run_id=excluded.run_id
+        """,(proc["pid"],proc["started_at"],data.run_id))
+    return {"selected":True,"pid":data.pid,"run_id":data.run_id}
+
 def build_dashboard():
     from .topology import build_process_tree
     runs, processes = classified_runs()
     manual = current_manual_links(processes)
     focus = current_focus(processes)
+    codex_tree=codex_thread_snapshot(store,runs)
+    active_codex_run=selected_codex_session(processes,codex_tree)
     sessions = current_agent_sessions(processes,runs)
     run_metrics=session_metrics({
         run["id"] for items in sessions.values() for run in items
@@ -389,6 +448,8 @@ def build_dashboard():
         "manual_links": manual,
         "agent_sessions": sessions,
         "session_metrics": run_metrics,
+        "codex_threads":codex_tree,
+        "codex_selected_run":active_codex_run,
         "checked_at": processes["checked_at"],
     }
 
