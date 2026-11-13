@@ -604,13 +604,13 @@ function renderProcessTree(payload,focus=null,manualLinks=[],runs=[],claudeRunId
  main.onclick=()=>showProcessDetails(focused);
  group.append(main);
  if(focused.session)txt(group,"div","tree-pill",String(focused.session.title).slice(0,100));
- const roots=(latestCodexTree.roots||[]).filter(x=>!x.parent_thread_id);
+ const codexRoots=(latestCodexTree.codexRoots||[]).filter(x=>!x.parent_thread_id);
  const choice=el("select","tree-selector");
  choice.setAttribute("aria-label","Sesión del orquestador Codex");
- const placeholder=el("option","","Selecciona sesión Codex para ver sus subagentes");
- placeholder.value="";choice.append(placeholder);
- roots.sort((a,b)=>String(b.run?.updated_at||"").localeCompare(String(a.run?.updated_at||"")));
- for(const root of roots.slice(0,100)){
+ const codexPlaceholder=el("option","","Selecciona sesión Codex para ver sus subagentes");
+ codexPlaceholder.value="";choice.append(codexPlaceholder);
+ codexRoots.sort((a,b)=>String(b.run?.updated_at||"").localeCompare(String(a.run?.updated_at||"")));
+ for(const root of codexRoots.slice(0,100)){
   const option=el("option","",String(root.run?.title||"Codex session").slice(0,50)+
       " · "+root.thread_id.slice(0,8)+
       (root.children?.length?" · "+root.children.length+" agentes":""));
@@ -623,14 +623,14 @@ function renderProcessTree(payload,focus=null,manualLinks=[],runs=[],claudeRunId
    await post("/api/topology/codex-session",{pid:focused.pid,run_id:choice.value});
    dashboardFetchedAt=0;treeSignature="";
    await refreshProcessTree(true);
-   const selected=flatProcesses((await getDashboard()).topology.roots)
+   const selected=flatProcesses((await getDashboard()).topology.codexRoots)
        .find(p=>p.pid===focused.pid);
    if(selected)showProcessDetails(selected,false);
   }catch(e){alert(e.message)}
  };
  group.append(choice);
  if(latestCodexRun){
-  const root=roots.find(r=>r.run_id===latestCodexRun);
+  const root=codexRoots.find(r=>r.run_id===latestCodexRun);
   if(root){
    const linked=el("button","tree-action","Abrir sesión principal de Codex");
    linked.onclick=()=>select(root.run_id);
