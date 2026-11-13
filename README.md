@@ -171,6 +171,18 @@ To inspect Codex subagents:
 4. The right-hand orchestrator card shows Codex subagent threads and
    per-thread token counters when available.
 
+Besides `session_meta` lineage, the observer recognizes native
+`event_msg.sub_agent_activity` records (and the `SubAgentActivity` items
+wrapped inside `item_started`/`item_completed`). Such events supply
+exact child thread IDs and lifecycle states, so a subagent can be shown
+before its own transcript becomes available. Missing transcripts remain
+unlinked and carry **no fabricated token or cost metrics**.
+
+**Windows EXE note:** after pulling a code update, rebuild the executable
+with `./scripts/build-windows.ps1`; simply launching an older file in
+`dist/` will continue using the old parser and UI. The new session
+selector can be used without installing Claude or its Mod.
+
 Session selections are stored with the PID and its creation timestamp
 and become invalid when that process ends. Codex subagent identity
 comes from the **thread ID**, not from a PID. Child thread names, roles
