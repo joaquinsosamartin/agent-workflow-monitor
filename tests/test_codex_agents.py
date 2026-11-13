@@ -1,0 +1,91 @@
+"""Codex subagent detection from explicit rollout metadata, not Windows PIDs."""
+import tempfile
+import unittest
+import json
+from pathlib import Path
+
+from monitor.db import Store
+from monitor.observer import SessionObserver, stable
+from monitor.codex_agents import (
+    source_parent, snapshot as codex_snapshot, collect_descendants,
+)
+
+
+class CodexAgentTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.root=Path(self.temp.name)
+        self.store=Store(self.root/"monitor.db")
+        self.observer=SessionObserver(self.store)
+
+    def tearDown(self):
+        self.store.close()
+        self.temp.cleanup()
+
+    def rollout(self,thread_id,source=None,role=None):
+        folder=self.root/"sessions"/"2026"/"11"/"13"
+        folder.mkdir(parents=True,exist_ok=True)
+        path=folder/("rollout-2026-11-13T10-00-00-"+thread_id+".jsonl")
+        data={"id":thread_id,"cwd":"C:/src/demo"}
+        if source:data["source"]=source
+        if role:data["agent_role"]=role
+        with path.open("w",encoding="utf-8") as f:
+            f.write(json.dumps({"type":"session_meta","payload":data})+"\n")
+        return path
+
+    def test_two_level_codex_agents_without_separate_processes(self):
+        root="11111111-1111-4111-8111-111111111111"
+        child="22222222-2222-4222-8222-222222222222"
+        grandchild="33333333-3333-4333-8333-333333333333"
+        parent=self.rollout(root)
+        second=self.rollout(child,{"subagent":{"thread_spawn":{
+            "parent_thread_id":root,"agent_nickname":"Reviewer",
+            "agent_role":"explorer","task_name":"Review API"}}})
+        third=self.rollout(grandchild,{"subagent":{"thread_spawn":{
+            "parent_thread_id":child,"agent_nickname":"Tests"}}})
+        # Scan child before parent to prove no ordering requirement.
+        for file in (third,second,parent):
+            self.observer._scan_file("codex",file)
+        tree=codex_snapshot(self.store,self.store.run_list())
+        self.assertEqual(tree["known_threads"],3)
+        self.assertEqual(tree["subagents"],2)
+        root_node=next(r for r in tree["roots"] if r["thread_id"]==root)
+        children=collect_descendants(root_node)
+        self.assertEqual([c["thread_id"] for c in children],[child,grandchild])
+        self.assertEqual(children[0]["role"],"explorer")
+        self.assertEqual(children[0]["title"],"Review API")
+
+    def test_backfill_existing_rollout_without_resetting_offset(self):
+        root="11111111-1111-4111-8111-111111111111"
+        child="22222222-2222-4222-8222-222222222222"
+        file=self.rollout(child,{"subagent":{"thread_spawn":{
+            "parent_thread_id":root}}})
+        self.observer._scan_file("codex",file)
+        first=codex_snapshot(self.store,self.store.run_list())
+        self.assertEqual(first["known_threads"],1)
+        self.observer._scan_file("codex",file)
+        second=codex_snapshot(self.store,self.store.run_list())
+        self.assertEqual(second["known_threads"],1)
+        self.assertEqual(second["roots"][0]["parent_thread_id"],root)
+
+    def test_no_parent_guessed_from_other_metadata(self):
+        parent,source=source_parent({
+            "id":"22222222-2222-4222-8222-222222222222",
+            "cwd":"C:/src/demo",
+            "agent_nickname":"Reviewer",
+            "source":"vscode"})
+        self.assertIsNone(parent)
+
+    def test_unknown_parent_remains_unlinked(self):
+        child="22222222-2222-4222-8222-222222222222"
+        parent="11111111-1111-4111-8111-111111111111"
+        file=self.rollout(child,{"subagent":{"thread_spawn":{
+            "parent_thread_id":parent}}})
+        self.observer._scan_file("codex",file)
+        tree=codex_snapshot(self.store,self.store.run_list())
+        self.assertEqual(tree["roots"][0]["thread_id"],child)
+        self.assertEqual(tree["roots"][0]["parent_thread_id"],parent)
+
+
+if __name__=="__main__":
+    unittest.main()
