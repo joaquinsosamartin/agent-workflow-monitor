@@ -60,6 +60,11 @@ def initialize(store):
                 started_at TEXT NOT NULL,
                 run_id TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS codex_agent_activity (
+                thread_id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
         """)
         store._codex_agents_ready=True
 
@@ -107,13 +112,52 @@ def save_thread_metadata(store, session_key, payload):
     return {"thread_id":identity,"parent_thread_id":parent}
 
 
+def save_subagent_activity(store, parent_run_id, payload):
+    """Associate a child only when Codex provides its exact thread ID."""
+    from .db import utc
+    if not isinstance(payload,dict):
+        return None
+    item=payload.get("item") if isinstance(payload.get("item"),dict) else payload
+    if item.get("type") not in (None,"SubAgentActivity"):
+        return None
+    child=thread_id(item.get("agent_thread_id"))
+    kind=item.get("kind")
+    if not child or kind not in ("started","interacted","interrupted","completed"):
+        return None
+    initialize(store)
+    with store.lock,store.conn:
+        parent=store.conn.execute(
+            "SELECT thread_id FROM codex_agent_threads WHERE run_id=?",
+            (parent_run_id,)).fetchone()
+        if not parent or parent["thread_id"]==child:
+            return None
+        path=item.get("agent_path")
+        nickname=path.rsplit("/",1)[-1][:80] if isinstance(path,str) else ""
+        store.conn.execute("""
+            INSERT OR IGNORE INTO codex_agent_threads(
+                thread_id,run_id,parent_thread_id,nickname,role,task,updated_at
+            ) VALUES(?,?,?,?,?,?,?)
+        """,(child,"",parent["thread_id"],nickname,"","",utc()))
+        store.conn.execute("""
+            INSERT INTO codex_agent_activity(thread_id,kind,updated_at)
+            VALUES(?,?,?)
+            ON CONFLICT(thread_id) DO UPDATE SET kind=excluded.kind,
+                updated_at=excluded.updated_at
+        """,(child,kind,utc()))
+    return child
+
+
 def snapshot(store, runs):
     """Return roots and nested children, including previously observed child runs."""
     initialize(store)
     by_run={r["id"]:r for r in runs}
     with store.lock:
-        items=[dict(r) for r in store.conn.execute(
-            "SELECT * FROM codex_agent_threads ORDER BY thread_id")]
+        items=[dict(r) for r in store.conn.execute("""
+            SELECT t.*,a.kind AS activity
+            FROM codex_agent_threads t
+            LEFT JOIN codex_agent_activity a ON a.thread_id=t.thread_id
+            ORDER BY t.thread_id
+        """)]
     indexed={a["thread_id"]:a for a in items}
     grouped={}
     for agent in items:
