@@ -85,7 +85,7 @@ def save_thread_metadata(store, session_key, payload):
     initialize(store)
     with store.lock,store.conn:
         previous=store.conn.execute("""
-            SELECT parent_thread_id,nickname,role,task FROM codex_agent_threads
+            SELECT run_id,parent_thread_id,nickname,role,task FROM codex_agent_threads
             WHERE thread_id=?
         """,(identity,)).fetchone()
         if previous and (previous["parent_thread_id"]==parent or parent is None) \
