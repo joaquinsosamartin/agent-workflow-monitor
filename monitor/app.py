@@ -427,7 +427,7 @@ def build_dashboard():
                        if r["run_id"]==active_codex_run),None)
     thread_ids=[active_codex_run] if active_codex_run else []
     if active_thread:
-        thread_ids += [a["run_id"] for a in collect_descendants(active_thread)]
+        thread_ids += [a["run_id"] for a in collect_descendants(active_thread) if a["run_id"]]
     codex_metrics=session_metrics(set(thread_ids))
     sessions = current_agent_sessions(processes,runs)
     run_metrics=session_metrics({
