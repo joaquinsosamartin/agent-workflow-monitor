@@ -623,12 +623,18 @@ function renderProcessTree(payload,focus=null,manualLinks=[],runs=[],claudeRunId
  codexPlaceholder.value="";choice.append(codexPlaceholder);
  codexRoots.sort((a,b)=>String(b.run?.updated_at||"").localeCompare(String(a.run?.updated_at||"")));
  for(const root of codexRoots.slice(0,100)){
-  const option=el("option","",String(root.run?.title||"Codex session").slice(0,50)+
+  const option=el("option","",String(root.run?.title||"Sesión Codex").slice(0,48)+
       " · "+root.thread_id.slice(0,8)+
-      (root.children?.length?" · "+root.children.length+" agentes":""));
+      (root.children?.length?" · "+root.children.length+" agentes":"")+
+      (root.root_confirmed===false?" · sin jerarquía verificada":""));
   option.value=root.run_id;choice.append(option);
  }
  choice.value=latestCodexRun||"";
+ if(!codexRoots.length){
+  txt(group,"p","tree-hint","No se encontraron conversaciones raíz Codex. Comprueba /api/codex/diagnostics y /api/observer; si usas el EXE, recompílalo después de git pull.");
+ }else{
+  txt(group,"p","tree-hint",codexRoots.length+" sesiones Codex disponibles · selecciona la conversación principal de este trabajo.");
+ }
  choice.onchange=async()=>{
   if(!choice.value)return;
   try{
