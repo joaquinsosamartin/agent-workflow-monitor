@@ -30,7 +30,7 @@ Agent Workflow Monitor helps answer:
 | --- | --- |
 | **Local agent discovery** | Detect Codex/Claude processes and incrementally read supported session JSONL files. |
 | **Focused orchestrator view** | Select one live Codex as the primary process and display its related Claude agents instead of every Codex process. |
-| **Agent-centric sessions** | Browse multiple Claude conversations per agent, with verified or explicitly confirmed associations. |
+| **Agent-centric sessions** | Browse multiple Claude conversations per agent and native Codex subagent threads, with verified or explicitly confirmed associations. |
 | **Workflow timeline** | Explore session steps, nested activity, states, timestamps and event history. |
 | **Provider-neutral plans** | Define phases/subphases, ownership and handoffs across Codex, Claude and future adapters. |
 | **Delegation tracking** | Explicitly supervised agent launches record the executor, orchestrator, PID, exit status and timestamps. |
@@ -145,6 +145,43 @@ Inside Claude Code:
 The Mod displays session status, observed subagents, recent tools, context usage and shared workflow plans. A bounded, best-effort bridge sends selected metadata to the local backend. API compatibility depends on the Claude release and the surface where the Mod is loaded.
 
 **Context-window occupancy is not billable token usage**; no USD charge is inferred from context size.
+
+## Codex native subagents (thread-based, no Claude required)
+
+Codex can launch **internal subagents as separate threads**, even when
+Windows shows no additional agent executable. A `codex.exe`,
+`codexbar.exe` or `codex-code-mode-host.exe` process is not
+automatically a Codex subagent.
+
+The JSONL observer now reads explicit `session_meta.payload.source.subagent.thread_spawn.parent_thread_id`
+and the agent identity fields from child rollouts. This preserves the
+real parent → child Codex hierarchy without guessing process ancestry
+or reassigning usage from similarly timed conversations. The metadata
+is indexed in `codex_agent_threads`; existing rollout headers are
+backfilled during scans without reprocessing entire transcripts.
+
+To inspect Codex subagents:
+
+1. Start the backend and choose your live **Codex orchestrator process**.
+2. In **Sesión del orquestador Codex**, select the actual *root
+   conversation* for that process. This step is needed if the process
+   doesn't expose its session UUID; the monitor will not guess.
+3. View **SUBAGENTES CODEX** below it, including nested agents. Click
+   any thread to open its own session and recorded timeline.
+4. The right-hand orchestrator card shows Codex subagent threads and
+   per-thread token counters when available.
+
+Session selections are stored with the PID and its creation timestamp
+and become invalid when that process ends. Codex subagent identity
+comes from the **thread ID**, not from a PID. Child thread names, roles
+and usage are shown only when provided by provider records.
+
+**Limitations:** not all Codex versions persist the same metadata;
+subagent activity may arrive before its rollout file is discovered;
+the monitor cannot always tell which of several concurrently running
+Codex root threads belongs to an unlabeled Codex process. In that case,
+select the root session explicitly. Missing costs remain unavailable.
+This feature does not require Claude Code or the Claude Mod.
 
 ## Codex integration and multi-agent workflows
 
