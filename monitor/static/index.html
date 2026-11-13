@@ -432,7 +432,7 @@ function addCodexSubagentCards(view,p){
  view.append(section);
 }
 function showProcessDetails(p,refreshTree=true){
- processDetailSignature=JSON.stringify(p);
+ processDetailSignature=JSON.stringify([p,p.provider==="codex"&&p.pid===currentFocusedPid?latestCodexRun:null,p.provider==="codex"&&p.pid===currentFocusedPid?latestCodexTree:null,p.provider==="codex"&&p.pid===currentFocusedPid?latestCodexMetrics:null]);
  // Reuse Agent Execution presentation for any selected process; only a
  // correlated session can supply token counts or costs.
  detailSelection={type:"process",id:p.pid};
@@ -623,6 +623,9 @@ function renderProcessTree(payload,focus=null,manualLinks=[],runs=[],claudeRunId
    await post("/api/topology/codex-session",{pid:focused.pid,run_id:choice.value});
    dashboardFetchedAt=0;treeSignature="";
    await refreshProcessTree(true);
+   const selected=flatProcesses((await getDashboard()).topology.roots)
+       .find(p=>p.pid===focused.pid);
+   if(selected)showProcessDetails(selected,false);
   }catch(e){alert(e.message)}
  };
  group.append(choice);
@@ -732,7 +735,11 @@ async function refreshProcessTree(force=false){
      if(child)return child;
    }return null};
    const current=find(topology.roots);
-   if(current&&JSON.stringify(current)!==processDetailSignature){
+   const signature=JSON.stringify([current,
+     current?.provider==="codex"&&current.pid===currentFocusedPid?latestCodexRun:null,
+     current?.provider==="codex"&&current.pid===currentFocusedPid?latestCodexTree:null,
+     current?.provider==="codex"&&current.pid===currentFocusedPid?latestCodexMetrics:null]);
+   if(current&&signature!==processDetailSignature){
      // Keep the same clicked agent, update only if its observed data changed.
      showProcessDetails(current,false);
    }
