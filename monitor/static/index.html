@@ -416,7 +416,7 @@ function addCodexSubagentCards(view,p){
    const title=agent.task||agent.nickname||agent.role||"Codex subagent";
    txt(card,"div","agent-card-title","⌘ "+title);
    txt(card,"div","agent-card-meta","Thread "+agent.thread_id.slice(0,13)+
-      " · "+(agent.run?.status||agent.activity||"Sin estado")+" · "+(agent.role||"Codex"));
+      " · "+codexAgentStatus(agent)+" · "+(agent.role||"Codex"));
    if(agent.run)txt(card,"div","agent-card-meta","Sesión: "+String(agent.run.title).slice(0,110));
    const usage=latestCodexMetrics[agent.run_id];
    if(usage)txt(card,"div","agent-card-meta",
@@ -535,6 +535,12 @@ function codexChildrenForSelected(){
  const root=(latestCodexTree.roots||[]).find(r=>r.run_id===latestCodexRun);
  return root?root.children||[]:[];
 }
+function codexAgentStatus(agent){
+ const mapped={started:"En ejecución",interacted:"En actividad",
+               completed:"Finalizado",interrupted:"Interrumpido"};
+ return mapped[agent.activity]||
+   (agent.run?.presence==="inactive"?"Inactivo":agent.run?.status?label(agent.run.status):"Pendiente de datos");
+}
 function codexAgentNode(container,agent,depth=0){
  const box=el("div","codex-subagent");
  box.style.marginLeft=Math.min(30,depth*11)+"px";
@@ -544,8 +550,7 @@ function codexAgentNode(container,agent,depth=0){
  if(agent.run_id)row.onclick=()=>select(agent.run_id);
  box.append(row);
  txt(box,"div","tree-meta","Codex · "+(agent.role||"Subagente")+
-     (agent.run?" · "+label(agent.run.status):
-       agent.activity?" · "+agent.activity:" · Detectado · pendiente de sesión"));
+     " · "+codexAgentStatus(agent));
  if(agent.run)txt(box,"div","tree-hint",String(agent.run.title).slice(0,85));
  container.append(box);
  for(const child of agent.children||[])codexAgentNode(container,child,depth+1);
