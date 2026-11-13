@@ -35,7 +35,7 @@ Agent Workflow Monitor helps answer:
 | **Provider-neutral plans** | Define phases/subphases, ownership and handoffs across Codex, Claude and future adapters. |
 | **Delegation tracking** | Explicitly supervised agent launches record the executor, orchestrator, PID, exit status and timestamps. |
 | **Usage and cost reporting** | Show available input/output tokens and reported or estimated costs, with partial/unavailable labels. |
-| **Claude Code Mod** | Native \`/workflow\` pane for local session state, subagents, tools and shared plans. |
+| **Claude Code Mod** | Native `/workflow` pane for local session state, subagents, tools and shared plans. |
 | **Performance dashboard** | CPU, RAM, p95 latencies and event charts with bounded local history. |
 | **Local API and SSE** | HTTP endpoints for sessions, workflow plans, agent mappings, events, metrics and live updates. |
 
@@ -43,7 +43,7 @@ Agent Workflow Monitor helps answer:
 
 ## Architecture
 
-\`\`\`mermaid
+```mermaid
 flowchart TD
   C["Codex CLI"] --> O["Process and JSONL observers"]
   L["Claude Code"] --> O
@@ -54,25 +54,25 @@ flowchart TD
   API --> S[("SQLite WAL · sessions and workflows")]
   API --> P[("SQLite · performance history")]
   API -->|"HTTP + SSE"| UI["Local web dashboard"]
-\`\`\`
+```
 
-**Local-first** means no Azure, AWS, cloud database or hosted monitoring service is required. The Python backend serves the web UI and listens on \`127.0.0.1\`.
+**Local-first** means no Azure, AWS, cloud database or hosted monitoring service is required. The Python backend serves the web UI and listens on `127.0.0.1`.
 
 ## Installation
 
 ### Requirements
 
 - **Windows 10/11** is the primary target. The Python backend can run on other platforms when CLI paths and dependencies are compatible.
-- **Python 3.12+** and Git; the Windows scripts expect the \`py\` launcher.
+- **Python 3.12+** and Git; the Windows scripts expect the `py` launcher.
 - Optional: **Claude Code** and/or **Codex CLI**, installed separately. Neither is required for the demo.
 
 ### Quick start — Windows
 
-\`\`\`powershell
+```powershell
 git clone https://github.com/joaquinsosamartin/agent-workflow-monitor.git
 cd agent-workflow-monitor
 .\scripts\start-windows.ps1
-\`\`\`
+```
 
 The script creates a virtual environment, installs dependencies and starts the backend. Open **http://127.0.0.1:8765**.
 
@@ -80,32 +80,32 @@ Use **Crear ejecución de demostración** to explore without an agent running. F
 
 ### Manual installation
 
-\`\`\`powershell
+```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m monitor serve
-\`\`\`
+```
 
 Cross-platform alternative:
 
-\`\`\`bash
+```bash
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
 python -m monitor serve --no-browser
-\`\`\`
+```
 
-To use a different port, run \`python -m monitor serve --port 8766\`. Note that the optional Claude Mod bridge currently uses port **8765**.
+To use a different port, run `python -m monitor serve --port 8766`. Note that the optional Claude Mod bridge currently uses port **8765**.
 
 ### Update an existing installation
 
-Stop the running server first (\`Ctrl+C\`), then:
+Stop the running server first (`Ctrl+C`), then:
 
-\`\`\`powershell
+```powershell
 git pull
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m monitor serve
-\`\`\`
+```
 
 Use **Ctrl+F5** to refresh the browser after UI updates.
 
@@ -130,17 +130,17 @@ The **Performance** tab displays backend CPU and memory, p95 latencies for JSONL
 
 The optional [Claude Code Mod](integrations/claude-mod/README.md) provides an embedded native pane. With the Python server running, start a new terminal:
 
-\`\`\`powershell
+```powershell
 claude --version
 claude plugin validate .\integrations\claude-mod
 claude --plugin-dir .\integrations\claude-mod
-\`\`\`
+```
 
 Inside Claude Code:
 
-\`\`\`text
+```text
 /workflow
-\`\`\`
+```
 
 The Mod displays session status, observed subagents, recent tools, context usage and shared workflow plans. A bounded, best-effort bridge sends selected metadata to the local backend. API compatibility depends on the Claude release and the surface where the Mod is loaded.
 
@@ -152,17 +152,17 @@ Codex can be observed via its local session files. An opt-in [Codex skill](integ
 
 Install the skill for your local Codex setup on Windows:
 
-\`\`\`powershell
+```powershell
 $target = Join-Path $HOME ".agents\skills\agent-workflow-delegate"
 New-Item -ItemType Directory -Force -Path $target | Out-Null
 Copy-Item .\integrations\codex\skills\agent-workflow-delegate\SKILL.md $target -Force
-\`\`\`
+```
 
 Restart Codex. After creating a workflow plan with the desired phase IDs (see [sample plan](examples/multi-agent-workflow.json)), track a delegated Claude execution using:
 
-\`\`\`powershell
+```powershell
 .\.venv\Scripts\python.exe -m monitor delegate --plan pops-customer-api --phase qa --provider claude --agent qa-reviewer --orchestrator-provider codex -- claude -p "Review the implementation and report findings"
-\`\`\`
+```
 
 The wrapper records execution identity, PID, start/end time and exit status — **not the prompt or tool output**. A successful process exit leaves the phase **waiting for explicit acceptance**, rather than automatically declaring the work complete.
 
@@ -185,7 +185,7 @@ Read more in [Codex integration](integrations/codex/README.md).
 
 ### Repository layout
 
-\`\`\`text
+```text
 agent-workflow-monitor/
 ├── monitor/
 │   ├── app.py                   # API and integration endpoints
@@ -204,7 +204,7 @@ agent-workflow-monitor/
 ├── tests/                       # Offline tests
 ├── entry.py
 └── requirements.txt
-\`\`\`
+```
 
 ## Configuration and local storage
 
@@ -212,30 +212,30 @@ Configure settings through environment variables **before starting the backend**
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| \`AGENT_MONITOR_DATA\` | \`~/.agent-monitor\` | Local data directory |
-| \`AGENT_MONITOR_OBSERVE\` | \`1\` | Enable JSONL discovery; \`0\` disables it |
-| \`AGENT_MONITOR_POLL_SECONDS\` | \`5\` | JSONL scan interval |
-| \`AGENT_MONITOR_LOOKBACK_HOURS\` | \`12\` | Recent transcript discovery period |
-| \`AGENT_MONITOR_DASHBOARD_SECONDS\` | \`10\` | Web dashboard refresh |
-| \`AGENT_MONITOR_PERF_INTERVAL_SECONDS\` | \`15\` | Performance sampling |
-| \`AGENT_MONITOR_PERF_RETENTION_HOURS\` | \`48\` | Metrics retention |
-| \`AGENT_MONITOR_METRIC_SAMPLES\` | \`300\` | Rolling latency sample capacity |
+| `AGENT_MONITOR_DATA` | `~/.agent-monitor` | Local data directory |
+| `AGENT_MONITOR_OBSERVE` | `1` | Enable JSONL discovery; `0` disables it |
+| `AGENT_MONITOR_POLL_SECONDS` | `5` | JSONL scan interval |
+| `AGENT_MONITOR_LOOKBACK_HOURS` | `12` | Recent transcript discovery period |
+| `AGENT_MONITOR_DASHBOARD_SECONDS` | `10` | Web dashboard refresh |
+| `AGENT_MONITOR_PERF_INTERVAL_SECONDS` | `15` | Performance sampling |
+| `AGENT_MONITOR_PERF_RETENTION_HOURS` | `48` | Metrics retention |
+| `AGENT_MONITOR_METRIC_SAMPLES` | `300` | Rolling latency sample capacity |
 
 By default, the monitor writes:
 
-\`\`\`text
+```text
 ~/.agent-monitor/
 ├── monitor.db       # Sessions, events, usage, agent relationships and plans
 ├── performance.db   # CPU, memory, latency and event samples
 └── api.key          # Local API write key
-\`\`\`
+```
 
-Claude transcripts are usually under \`~/.claude/projects\` and Codex session data under \`~/.codex/sessions\` (also some Windows AppData locations). Use \`CLAUDE_CONFIG_DIR\` or \`CODEX_HOME\` for custom locations. A native Windows monitor does not automatically read WSL sessions.
+Claude transcripts are usually under `~/.claude/projects` and Codex session data under `~/.codex/sessions` (also some Windows AppData locations). Use `CLAUDE_CONFIG_DIR` or `CODEX_HOME` for custom locations. A native Windows monitor does not automatically read WSL sessions.
 
 ### Privacy and security
 
-- The backend **binds to localhost** (\`127.0.0.1\`) and requires no cloud account.
-- API mutations require \`X-Monitor-Key\`. The localhost bootstrap exposes the key to the local browser; **this mechanism is not suitable for an internet-facing deployment**.
+- The backend **binds to localhost** (`127.0.0.1`) and requires no cloud account.
+- API mutations require `X-Monitor-Key`. The localhost bootstrap exposes the key to the local browser; **this mechanism is not suitable for an internet-facing deployment**.
 - The observer does not intentionally store full prompts, tool arguments, outputs or code, but **short session titles can be derived from user instructions**. Treat the databases as potentially sensitive.
 - Cost and token totals are labeled as **reported**, **estimated**, **partial** or **unavailable** where supported. Subscription prices are not identical to API token charges.
 - A process being a child of another process does **not** by itself confirm that work was delegated between coding agents.
@@ -243,38 +243,38 @@ Claude transcripts are usually under \`~/.claude/projects\` and Codex session da
 
 ## API
 
-Useful endpoints (many write operations require \`X-Monitor-Key\`):
+Useful endpoints (many write operations require `X-Monitor-Key`):
 
 | Endpoint | Purpose |
 | --- | --- |
-| \`GET /api/health\` | Basic health |
-| \`GET /api/dashboard\` | Process, session, focus and association snapshot |
-| \`GET /api/observer\` | Session-discovery diagnostics |
-| \`GET /api/runs/{id}\` | Session details, timeline and usage |
-| \`GET /api/runs/{id}/events\` | Live SSE stream |
-| \`GET /api/workflows\` | Shared plans |
-| \`GET /api/workflows/{id}\` | Phases and owner history |
-| \`GET /api/workflows/{id}/executions\` | Delegated execution records |
-| \`GET /api/performance\` | Live performance metrics |
-| \`GET /api/performance/history?hours=6\` | Historical performance samples |
-| \`POST /api/integrations/claude/events/batch\` | Ingest Claude Mod telemetry |
+| `GET /api/health` | Basic health |
+| `GET /api/dashboard` | Process, session, focus and association snapshot |
+| `GET /api/observer` | Session-discovery diagnostics |
+| `GET /api/runs/{id}` | Session details, timeline and usage |
+| `GET /api/runs/{id}/events` | Live SSE stream |
+| `GET /api/workflows` | Shared plans |
+| `GET /api/workflows/{id}` | Phases and owner history |
+| `GET /api/workflows/{id}/executions` | Delegated execution records |
+| `GET /api/performance` | Live performance metrics |
+| `GET /api/performance/history?hours=6` | Historical performance samples |
+| `POST /api/integrations/claude/events/batch` | Ingest Claude Mod telemetry |
 
 With the server running, use [FastAPI's interactive API docs](http://127.0.0.1:8765/docs) for the full route catalog.
 
 ## Standalone Windows build
 
-\`\`\`powershell
+```powershell
 .\scripts\build-windows.ps1
 .\dist\agent-monitor.exe
-\`\`\`
+```
 
 The PyInstaller build must be produced on Windows. The script creates a local executable; **no prebuilt or signed installer is promised**. Validate the resulting EXE on its target machine.
 
 ## Tests
 
-\`\`\`powershell
+```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
-\`\`\`
+```
 
 Offline tests cover core components including observer behavior, workflow plans and handoffs, explicit session associations and performance collection. Integration behavior depends on installed provider versions and must be tested locally.
 
