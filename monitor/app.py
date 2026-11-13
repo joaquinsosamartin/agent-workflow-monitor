@@ -387,6 +387,11 @@ def selected_codex_session(processes,tree):
             return root["run_id"]
     return None
 
+@app.get('/api/codex/agents')
+async def get_codex_agents():
+    return await bounded(codex_thread_snapshot,store,store.run_list(),
+                         operation="Codex agent threads")
+
 @app.post('/api/topology/codex-session',dependencies=[Depends(authorize)])
 async def set_codex_session(data:CodexSessionSelection):
     return await bounded(_set_codex_session,data,operation="codex session selection")
