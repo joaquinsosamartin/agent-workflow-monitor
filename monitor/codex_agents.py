@@ -88,7 +88,8 @@ def save_thread_metadata(store, session_key, payload):
             SELECT run_id,parent_thread_id,nickname,role,task FROM codex_agent_threads
             WHERE thread_id=?
         """,(identity,)).fetchone()
-        if previous and (previous["parent_thread_id"]==parent or parent is None) \
+        if previous and previous["run_id"]==run_id and \
+            (previous["parent_thread_id"]==parent or parent is None) \
             and (not nickname or previous["nickname"]==nickname[:80]) \
             and (not role or previous["role"]==role[:80]) \
             and (not task or previous["task"]==task[:160]):
