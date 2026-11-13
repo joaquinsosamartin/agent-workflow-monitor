@@ -50,6 +50,38 @@ class FocusTests(unittest.TestCase):
             {"pid":11,"provider":"codex","started_at":"reused-PID"}
         ]}))
 
+    def test_codex_thread_session_selected_for_focused_pid(self):
+        from monitor.codex_agents import save_thread_metadata, snapshot
+        from monitor.observer import stable
+        thread="11111111-1111-4111-8111-111111111111"
+        filename_key="rollout-2026-11-13T10-00-00-"+thread
+        rid=stable("run","codex",filename_key)
+        self.store.add_run("Codex current","local",rid)
+        save_thread_metadata(self.store,filename_key,{"id":thread})
+        self.module._set_focus(self.module.FocusIn(pid=11))
+        chosen=self.module._set_codex_session(
+            self.module.CodexSessionSelection(pid=11,run_id=rid))
+        self.assertTrue(chosen["selected"])
+        state=self.module.selected_codex_session(
+            {"processes":self.processes},
+            snapshot(self.store,self.store.run_list()))
+        self.assertEqual(state,rid)
+
+    def test_subagent_cannot_be_selected_as_root_codex_session(self):
+        from monitor.codex_agents import save_thread_metadata
+        from monitor.observer import stable
+        parent="11111111-1111-4111-8111-111111111111"
+        child="22222222-2222-4222-8222-222222222222"
+        key="rollout-2026-11-13T10-00-00-"+child
+        rid=stable("run","codex",key)
+        self.store.add_run("Codex subagent","local",rid)
+        save_thread_metadata(self.store,key,{"id":child,"source":{
+            "subagent":{"thread_spawn":{"parent_thread_id":parent}}}})
+        self.module._set_focus(self.module.FocusIn(pid=11))
+        with self.assertRaises(HTTPException):
+            self.module._set_codex_session(
+                self.module.CodexSessionSelection(pid=11,run_id=rid))
+
     def test_cannot_select_claude_as_orchestrator(self):
         with self.assertRaises(HTTPException):
             self.module._set_focus(self.module.FocusIn(pid=20))
