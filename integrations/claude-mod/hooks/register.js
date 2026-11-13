@@ -1,4 +1,4 @@
-import {sendSnapshot,bridgeStatus,listSharedWorkflows,loadSharedWorkflow,loadDelegatedExecutions,sendClaudeTask} from "./bridge.js";
+import {sendSnapshot,bridgeStatus,listSharedWorkflows,loadSharedWorkflow,loadDelegatedExecutions,sendClaudeTask,loadCodexOrchestration} from "./bridge.js";
 /* Claude Code Mod — local, read-only workflow view.
  * All hooks pass through Claude's ordinary behavior; no tools are intercepted.
  * This version draws its own Pane and shows only data exposed by the Mods API.
@@ -11,6 +11,7 @@ let state = {
   tools: [], agents: [], usage: null, status: "idle", error: null, expandedAgents: {},
   sharedPlans: [], selectedPlan: null, planData: null, delegatedExecutions: [], expandedPhases: {},
   lastHookLatencyMs: null,
+  codex: null, expandedCodexThreads: {}, codexError: null,
 };
 
 function clean(text, max=85) {
@@ -73,6 +74,67 @@ async function loadPlans($) {
     state.error="Plan compartido: "+clean(err?.message??err,100);
   }
   $.ui.invalidate("ui.render");
+}
+async function loadCodex($) {
+  try {
+    state.codex=await loadCodexOrchestration($);
+    state.codexError=null;
+  }catch(err){
+    state.codexError=clean(err?.message??err,100);
+  }
+  if(state.open)$.ui.invalidate("ui.render");
+}
+function addCodexRows($,rows,line,Box,Text,Button){
+  rows.push(line("── CODEX · ORQUESTACIÓN COMPARTIDA ──","cyan"));
+  if(state.codexError){
+    rows.push(line("No disponible: "+state.codexError,"gray"));
+    return;
+  }
+  const data=state.codex;
+  if(!data?.focus){
+    rows.push(line("Sin Codex principal seleccionado en el dashboard web","gray"));
+    return;
+  }
+  rows.push(line("Codex · PID "+data.focus.pid+" · proceso seleccionado"));
+  const root=(data.tree?.roots||[]).find(x=>x.run_id===data.selectedRun&&!x.parent_thread_id);
+  if(!root){
+    rows.push(line("Selecciona la sesión raíz de Codex desde el dashboard web","gray"));
+    return;
+  }
+  rows.push(line("Sesión: "+clean(root.run?.title||root.thread_id,90),"gray"));
+  const allMetrics=data.metrics||{};
+  function renderThread(agent,depth){
+    const prefix=" ".repeat(Math.min(depth*2,10));
+    const name=agent.task||agent.nickname||agent.role||"Codex subagent";
+    const status=agent.activity||agent.run?.status||"pending";
+    const symbol=status==="completed"?"✓":status==="interrupted"||status==="failed"?"!":status==="started"||status==="running"?"◌":"·";
+    const children=agent.children||[];
+    const expanded=Boolean(state.expandedCodexThreads[agent.thread_id]);
+    if(children.length){
+      rows.push(Box({flexDirection:"row",children:[
+        Text({children:prefix+symbol+" "+clean(name,62)}),
+        Button({label:expanded?"−":"+",onPress:()=>{
+          state.expandedCodexThreads[agent.thread_id]=!expanded;
+          $.ui.invalidate("ui.render");
+        }})
+      ]}));
+    }else rows.push(line(prefix+symbol+" "+clean(name,62)));
+    rows.push(line(prefix+"  "+clean(status,20)+" · thread "+clean(agent.thread_id,13),"gray"));
+    const metric=allMetrics[agent.run_id];
+    if(metric){
+      const tokens=metric.tokens==null?"—":short(metric.tokens);
+      const cost=metric.cost_usd==null?"—":"$"+Number(metric.cost_usd).toFixed(4);
+      rows.push(line(prefix+"  Tokens "+tokens+" · Coste "+cost+
+        (metric.cost_partial?" (parcial)":""),"gray"));
+    }else if(!agent.run_id){
+      rows.push(line(prefix+"  Sin sesión JSONL correlacionada","gray"));
+    }
+    if(expanded)for(const child of children.slice(0,30))renderThread(child,depth+1);
+  }
+  const rootChildren=root.children||[];
+  rows.push(line("Subagentes Codex: "+rootChildren.length+" directos","cyan"));
+  if(!rootChildren.length)rows.push(line("Sin subagentes identificados para esta sesión","gray"));
+  for(const child of rootChildren.slice(0,30))renderThread(child,0);
 }
 function phaseStatus(s) {
   return ({pending:"○",running:"◌",completed:"✓",failed:"!",blocked:"⊘",
@@ -167,7 +229,8 @@ function draw($, e) {
     rows.push(line("Tokens: aún no disponibles","gray"));
   }
   addWorkflowRows($,rows,line,Box,Text,Button);
-  rows.push(line("── AGENTES DE ESTA SESIÓN ──","cyan"));
+  addCodexRows($,rows,line,Box,Text,Button);
+  rows.push(line("── AGENTES CLAUDE DE ESTA SESIÓN ──","cyan"));
   if(!state.agents.length)rows.push(line("Sin subagentes registrados","gray"));
   for(const a of state.agents.slice(0,10)){
     const glyph=a.status==="completed"?"✓":a.status==="running"?"◌":a.status==="failed"?"!":"·";
@@ -196,7 +259,7 @@ function draw($, e) {
   }
   if(state.error)rows.push(line("Diagnóstico: "+state.error,"yellow"));
   if(bridgeStatus().error)rows.push(line("Puente: "+bridgeStatus().error,"yellow"));
-  rows.push(Button({label:"Actualizar",onPress:async()=>{await capture($);publish($);await loadPlans($)}}));
+  rows.push(Button({label:"Actualizar",onPress:async()=>{await capture($);publish($);await Promise.all([loadPlans($),loadCodex($)])}}));
   rows.push(Button({label:"Cerrar panel",onPress:async()=>{state.open=false;await $.ui.close({id:PANE_ID})}}));
   return Box({flexDirection:"column",paddingX:1,children:rows});
 }
@@ -204,7 +267,7 @@ async function open($){
   state.open=true;
   await capture($);
   publish($);
-  await loadPlans($);
+  await Promise.all([loadPlans($),loadCodex($)]);
   const placement=await $.ui.open({id:PANE_ID,title:"Agent Workflow",focus:true});
   return placement;
 }
