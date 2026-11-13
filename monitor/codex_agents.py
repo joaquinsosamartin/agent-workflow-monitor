@@ -248,6 +248,34 @@ def snapshot(store, runs):
             LEFT JOIN codex_agent_activity a ON a.thread_id=t.thread_id
             ORDER BY t.thread_id
         """)]
+    # The CLI may have usable rollout files even when their headers were
+    # not indexed (e.g. an older observer database). Offer them explicitly
+    # as *unverified root candidates*, not as proved parent threads.
+    with store.lock:
+        rows=store.conn.execute("""
+            SELECT f.path,f.run_id,r.title,r.updated_at
+            FROM observer_files f JOIN runs r ON r.id=f.run_id
+            WHERE f.provider='codex' ORDER BY r.updated_at DESC LIMIT 200
+        """).fetchall()
+    indexed_ids={a["thread_id"] for a in items}
+    for entry in rows:
+        # Rollout filenames end in the canonical UUID, regardless of
+        # the date-time prefix. Accept no other generated thread identity.
+        match=re.search(r"([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})\\.jsonl$",entry["path"])
+        if not match:
+            continue
+        identity=thread_id(match.group(1))
+        if not identity or identity in indexed_ids:
+            continue
+        items.append({
+            "thread_id":identity,"run_id":entry["run_id"],
+            "parent_thread_id":None,"nickname":"","role":"",
+            "task":"","updated_at":entry["updated_at"],
+            "activity":None,"root_confirmed":False,
+        })
+        indexed_ids.add(identity)
+    for item in items:
+        item.setdefault("root_confirmed",True)
     indexed={a["thread_id"]:a for a in items}
     grouped={}
     for agent in items:
