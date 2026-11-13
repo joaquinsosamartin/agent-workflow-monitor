@@ -94,6 +94,45 @@ class CodexAgentTests(unittest.TestCase):
         self.assertEqual(second["known_threads"],1)
         self.assertEqual(second["roots"][0]["parent_thread_id"],root)
 
+    def test_root_session_offered_when_header_was_not_indexed(self):
+        root="44444444-4444-4444-8444-444444444444"
+        stem="rollout-2026-11-13T10-00-00-"+root
+        run_id=stable("run","codex",stem)
+        self.store.add_run("Recoverable Codex root","demo",run_id)
+        with self.store.lock,self.store.conn:
+            self.store.conn.execute("""
+                CREATE TABLE IF NOT EXISTS observer_files (
+                    path TEXT PRIMARY KEY,offset INTEGER,provider TEXT,
+                    run_id TEXT,last_seen TEXT
+                )
+            """)
+            self.store.conn.execute("""
+                INSERT INTO observer_files(path,offset,provider,run_id,last_seen)
+                VALUES(?,0,'codex',?,'2026-11-13')
+            """,(str(self.root/(stem+".jsonl")),run_id))
+        result=codex_snapshot(self.store,self.store.run_list())
+        candidate=next(x for x in result["roots"] if x["thread_id"]==root)
+        self.assertFalse(candidate["root_confirmed"])
+        self.assertEqual(candidate["run_id"],run_id)
+
+    def test_spawn_tool_response_creates_real_child_without_rollout(self):
+        root="11111111-1111-4111-8111-111111111111"
+        child="22222222-2222-4222-8222-222222222222"
+        path=self.rollout(root)
+        with path.open("a",encoding="utf-8") as f:
+            f.write(json.dumps({"type":"response_item","payload":{
+                "type":"function_call","name":"spawn_agent",
+                "call_id":"call-1","arguments":"{\"message\":\"private\"}"}})+"\n")
+            f.write(json.dumps({"type":"response_item","payload":{
+                "type":"function_call_output","call_id":"call-1",
+                "output":json.dumps({"agent_id":child})}})+"\n")
+        self.observer._scan_file("codex",path)
+        result=codex_snapshot(self.store,self.store.run_list())
+        parent=next(x for x in result["roots"] if x["thread_id"]==root)
+        self.assertEqual(parent["children"][0]["thread_id"],child)
+        self.assertFalse(parent["children"][0]["run_id"])
+        self.assertNotIn("private",str(result))
+
     def test_no_parent_guessed_from_other_metadata(self):
         parent,source=source_parent({
             "id":"22222222-2222-4222-8222-222222222222",
