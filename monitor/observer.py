@@ -261,6 +261,9 @@ class SessionObserver:
                             rid = self._ensure_run(provider, session_id, cwd)
                             self._ensure_node(rid, "session", "Codex CLI session",
                                               "Codex", "codex")
+                            # Backfill lineage for rollouts already scanned
+                            # before Codex subagent support existed.
+                            self._register_codex_thread(session_id, metadata)
                         else:
                             self.last_errors[str(path)] = "Codex file missing session_meta header"
                     except (ValueError, TypeError):
