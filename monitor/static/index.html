@@ -344,6 +344,7 @@ function agentLinkPicker(target,agent,runs,associated){
 function addCoordinatedAgents(view,process){
  if(process.provider!=="codex")return;
  const agents=coordinatedAgents(process);
+ if(!agents.length)return;
  const section=el("section","agents-section");
  const header=el("div","header");
  txt(header,"span","eyebrow","AGENTES COORDINADOS");
@@ -417,6 +418,10 @@ function addCodexSubagentCards(view,p){
    txt(card,"div","agent-card-meta","Thread "+agent.thread_id.slice(0,13)+
       " · "+(agent.run?.status||"Sin estado")+" · "+(agent.role||"Codex"));
    if(agent.run)txt(card,"div","agent-card-meta","Sesión: "+String(agent.run.title).slice(0,110));
+   const usage=latestCodexMetrics[agent.run_id];
+   if(usage)txt(card,"div","agent-card-meta",
+      (usage.tokens==null?"Tokens: —":"Tokens: "+compact(usage.tokens))+
+      " · "+(usage.cost_usd==null?"Coste: sin datos":"Coste: $"+Number(usage.cost_usd).toFixed(4)));
    const open=el("button","tree-action","Ver ejecución del subagente");
    open.onclick=()=>select(agent.run_id);
    card.append(open);section.append(card);
@@ -453,11 +458,14 @@ function showProcessDetails(p,refreshTree=true){
  txt(view,"div","timestamp","Iniciado · "+dateTime(p.started_at));
  const cards=el("div","cards");
  const ownSessions=agentSessions(p);
+ const selectedCodex=p.provider==="codex"&&p.pid===currentFocusedPid&&latestCodexRun;
+ const codexThreadMetrics=selectedCodex
+    ?Object.values(latestCodexMetrics).map(metrics=>({metrics})):null;
  const sessions=p.provider==="codex"
-   ?[...new Map(coordinatedAgents(p).flatMap(x=>agentSessions(x.node)).map(x=>[x.id,x])).values()]
+   ?codexThreadMetrics||[...new Map(coordinatedAgents(p).flatMap(x=>agentSessions(x.node)).map(x=>[x.id,x])).values()]
    :ownSessions;
  const total=sessionTotalMetrics(sessions);
- const origin=p.provider==="codex"?"Agentes asociados":"Sesiones vinculadas";
+ const origin=selectedCodex?"Threads Codex identificados":p.provider==="codex"?"Agentes asociados":"Sesiones vinculadas";
  const metrics=[
    [total.costs===null?"—":"$"+total.costs.toFixed(4),"Coste USD"+(total.estimated?" · estimado":"")+(total.partial?" · parcial":"")+" · "+origin.toLowerCase()],
    [total.tokens===null?"—":compact(total.tokens),"Tokens entrada + salida · "+origin],
@@ -517,7 +525,7 @@ function flatProcesses(roots){
  }
  walk(roots);return out;
 }
-let latestCodexTree={roots:[]},latestCodexRun=null;
+let latestCodexTree={roots:[]},latestCodexRun=null,latestCodexMetrics={};
 function codexChildrenForSelected(){
  const root=(latestCodexTree.roots||[]).find(r=>r.run_id===latestCodexRun);
  return root?root.children||[]:[];
@@ -576,6 +584,7 @@ function renderProcessTree(payload,focus=null,manualLinks=[],runs=[],claudeRunId
    const data=await getDashboard(true);
    latestCodexTree=data.codex_threads||{roots:[]};
    latestCodexRun=data.codex_selected_run||null;
+   latestCodexMetrics=data.codex_metrics||{};
    renderProcessTree(data.topology,data.focus,data.manual_links||[],data.runs||[],data.claude_run_ids||[]);
    const main=flatProcesses(data.topology.roots||[]).find(p=>p.pid===data.focus?.pid);
    if(main)showProcessDetails(main,false);
@@ -666,6 +675,7 @@ function renderProcessTree(payload,focus=null,manualLinks=[],runs=[],claudeRunId
  box.append(group);
  const linkedElsewhere=new Set((manualLinks||[]).filter(x=>x.parent_pid!==focused.pid).map(x=>x.child_pid));
  const choices=claude.filter(p=>!known.has(p.pid)&&!linkedElsewhere.has(p.pid));
+ if(!choices.length&&!related.length)return;
  const action=el("button","session-header");
  action.type="button";
  action.textContent=(processCandidatesOpen?"▾ ":"▸ ")+"ASOCIAR CLAUDE ("+choices.length+" disponibles)";
@@ -713,6 +723,7 @@ async function refreshProcessTree(force=false){
   const topology=dashboard.topology;
   latestCodexTree=dashboard.codex_threads||{roots:[]};
   latestCodexRun=dashboard.codex_selected_run||null;
+  latestCodexMetrics=dashboard.codex_metrics||{};
   renderProcessTree(topology,dashboard.focus,dashboard.manual_links||[],dashboard.runs||[],dashboard.claude_run_ids||[]);
   if(detailSelection.type==="process"){
    const find=(nodes)=>{for(const p of nodes||[]){
