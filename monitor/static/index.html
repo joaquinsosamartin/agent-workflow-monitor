@@ -397,6 +397,35 @@ function addCoordinatedAgents(view,process){
  }
  view.append(section);
 }
+function addCodexSubagentCards(view,p){
+ if(p.provider!=="codex"||p.pid!==currentFocusedPid||!latestCodexRun)return;
+ const root=(latestCodexTree.roots||[]).find(r=>r.run_id===latestCodexRun);
+ if(!root)return;
+ const section=el("section","agents-section");
+ const head=el("div","header");
+ txt(head,"span","eyebrow","SUBAGENTES CODEX · THREADS");
+ const count=(node)=> (node.children||[]).reduce((sum,child)=>sum+1+count(child),0);
+ txt(head,"span","badge",count(root)+" identificados");
+ section.append(head);
+ txt(section,"p","agents-summary","Subagentes vinculados mediante el identificador del thread padre registrado por Codex. No necesitan un PID de Windows.");
+ const walk=(items,depth=0)=>{
+  for(const agent of items||[]){
+   const card=el("div","agent-card");
+   card.style.marginLeft=Math.min(40,depth*14)+"px";
+   const title=agent.task||agent.nickname||agent.role||"Codex subagent";
+   txt(card,"div","agent-card-title","⌘ "+title);
+   txt(card,"div","agent-card-meta","Thread "+agent.thread_id.slice(0,13)+
+      " · "+(agent.run?.status||"Sin estado")+" · "+(agent.role||"Codex"));
+   if(agent.run)txt(card,"div","agent-card-meta","Sesión: "+String(agent.run.title).slice(0,110));
+   const open=el("button","tree-action","Ver ejecución del subagente");
+   open.onclick=()=>select(agent.run_id);
+   card.append(open);section.append(card);
+   walk(agent.children,depth+1);
+  }
+ };
+ walk(root.children);
+ view.append(section);
+}
 function showProcessDetails(p,refreshTree=true){
  processDetailSignature=JSON.stringify(p);
  // Reuse Agent Execution presentation for any selected process; only a
@@ -471,6 +500,7 @@ function showProcessDetails(p,refreshTree=true){
  if(!sessions.length&&p.provider==="claude")
    txt(view,"p","tree-hint","El proceso no aporta por sí solo datos de coste o tokens: vincula sus sesiones para mostrar métricas reales.");
  addCoordinatedAgents(view,p);
+ addCodexSubagentCards(view,p);
  txt(view,"div","footer","◉ SQLite local · Procesos vivos · Solo métricas verificadas");
  if(refreshTree)refreshProcessTree().catch(console.error);
 }
