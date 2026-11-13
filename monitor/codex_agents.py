@@ -37,7 +37,11 @@ def source_parent(payload):
 
 
 def initialize(store):
+    if getattr(store,"_codex_agents_ready",False):
+        return
     with store.lock,store.conn:
+        if getattr(store,"_codex_agents_ready",False):
+            return
         store.conn.executescript("""
             CREATE TABLE IF NOT EXISTS codex_agent_threads (
                 thread_id TEXT PRIMARY KEY,
@@ -57,6 +61,7 @@ def initialize(store):
                 run_id TEXT NOT NULL
             );
         """)
+        store._codex_agents_ready=True
 
 
 def save_thread_metadata(store, session_key, payload):
