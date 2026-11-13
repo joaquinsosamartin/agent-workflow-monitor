@@ -104,6 +104,10 @@ h1{font-size:27px;letter-spacing:-.7px;margin:15px 0 5px}.header{display:flex;al
 .agent-session-title{background:transparent;border:0;padding:0;text-align:left;font-size:11px;font-weight:650;color:#b9d9ff;overflow-wrap:anywhere;width:100%}
 .agent-session-title:hover{text-decoration:underline}
 .agent-session-meta{font-size:10px;color:#91aac7;line-height:1.5;margin-top:4px;overflow-wrap:anywhere}
+
+.codex-subagent{border-left:2px solid #668dbb;margin-top:8px;padding:8px;background:#142941;border-radius:7px}
+.codex-subagent .tree-name{font-size:12px}
+.codex-subagent .tree-hint{overflow-wrap:anywhere}
 </style></head>
 <body><div class="layout"><aside><div class="brand">◇ Agent Workflow <span>Monitor</span>
 <div class="brand-byline">made with <span class="heart" aria-label="love">❤️</span> by <a href="https://joaquinsosa.es" target="_blank" rel="noopener noreferrer">joaquinsosa.es</a></div></div>
@@ -483,6 +487,24 @@ function flatProcesses(roots){
  }
  walk(roots);return out;
 }
+let latestCodexTree={roots:[]},latestCodexRun=null;
+function codexChildrenForSelected(){
+ const root=(latestCodexTree.roots||[]).find(r=>r.run_id===latestCodexRun);
+ return root?root.children||[]:[];
+}
+function codexAgentNode(container,agent,depth=0){
+ const box=el("div","codex-subagent");
+ box.style.marginLeft=Math.min(30,depth*11)+"px";
+ const row=el("button","tree-name","↳ ⌘ "+(agent.nickname||agent.role||agent.task||"Codex subagent"));
+ row.title="Thread "+agent.thread_id;
+ row.onclick=()=>select(agent.run_id);
+ box.append(row);
+ txt(box,"div","tree-meta","Codex · "+(agent.role||"Subagente")+
+     (agent.run?" · "+label(agent.run.status):" · Sin actividad registrada"));
+ if(agent.run)txt(box,"div","tree-hint",String(agent.run.title).slice(0,85));
+ container.append(box);
+ for(const child of agent.children||[])codexAgentNode(container,child,depth+1);
+}
 function renderProcessTree(payload,focus=null,manualLinks=[],runs=[],claudeRunIds=[]){
  const box=document.querySelector("#process-tree");
  const roots=payload.roots||[];
@@ -491,7 +513,7 @@ function renderProcessTree(payload,focus=null,manualLinks=[],runs=[],claudeRunId
  const claude=all.filter(p=>p.provider==="claude");
  const focused=focus?codex.find(p=>p.pid===focus.pid&&p.started_at===focus.started_at):null;
  currentFocusedPid=focused?.pid??null;
- const signature=JSON.stringify([payload.roots,focus,manualLinks,
+ const signature=JSON.stringify([payload.roots,focus,manualLinks,latestCodexRun,latestCodexTree,
     processCandidatesOpen,[...processSelection].sort(),detailSelection,sessionChoicesOpen.size]);
  if(treeSignature===signature)return;
  treeSignature=signature;
@@ -522,6 +544,8 @@ function renderProcessTree(payload,focus=null,manualLinks=[],runs=[],claudeRunId
        });
    dashboardFetchedAt=0;treeSignature="";
    const data=await getDashboard(true);
+   latestCodexTree=data.codex_threads||{roots:[]};
+   latestCodexRun=data.codex_selected_run||null;
    renderProcessTree(data.topology,data.focus,data.manual_links||[],data.runs||[],data.claude_run_ids||[]);
    const main=flatProcesses(data.topology.roots||[]).find(p=>p.pid===data.focus?.pid);
    if(main)showProcessDetails(main,false);
@@ -541,6 +565,42 @@ function renderProcessTree(payload,focus=null,manualLinks=[],runs=[],claudeRunId
  main.onclick=()=>showProcessDetails(focused);
  group.append(main);
  if(focused.session)txt(group,"div","tree-pill",String(focused.session.title).slice(0,100));
+ const roots=(latestCodexTree.roots||[]).filter(x=>!x.parent_thread_id);
+ const choice=el("select","tree-selector");
+ choice.setAttribute("aria-label","Sesión del orquestador Codex");
+ const placeholder=el("option","","Selecciona sesión Codex para ver sus subagentes");
+ placeholder.value="";choice.append(placeholder);
+ roots.sort((a,b)=>String(b.run?.updated_at||"").localeCompare(String(a.run?.updated_at||"")));
+ for(const root of roots.slice(0,100)){
+  const option=el("option","",String(root.run?.title||"Codex session").slice(0,50)+
+      " · "+root.thread_id.slice(0,8)+
+      (root.children?.length?" · "+root.children.length+" agentes":""));
+  option.value=root.run_id;choice.append(option);
+ }
+ choice.value=latestCodexRun||"";
+ choice.onchange=async()=>{
+  if(!choice.value)return;
+  try{
+   await post("/api/topology/codex-session",{pid:focused.pid,run_id:choice.value});
+   dashboardFetchedAt=0;treeSignature="";
+   await refreshProcessTree(true);
+  }catch(e){alert(e.message)}
+ };
+ group.append(choice);
+ if(latestCodexRun){
+  const root=roots.find(r=>r.run_id===latestCodexRun);
+  if(root){
+   const linked=el("button","tree-action","Abrir sesión principal de Codex");
+   linked.onclick=()=>select(root.run_id);
+   group.append(linked);
+   const children=root.children||[];
+   txt(group,"div","tree-header","SUBAGENTES CODEX · "+children.length+" directos");
+   if(!children.length)txt(group,"p","tree-hint","Sin subagentes identificados en esta sesión. Las tareas normales no implican necesariamente delegación.");
+   for(const agent of children)codexAgentNode(group,agent);
+  }
+ }else{
+  txt(group,"p","tree-hint","Selecciona la sesión raíz. Codex puede ejecutar subagentes como threads internos sin procesos Windows independientes.");
+ }
  const related=coordinatedAgents(focused).map(x=>x.node);
  const known=new Set(related.map(x=>x.pid));
  for(const p of related){
@@ -621,6 +681,8 @@ async function refreshProcessTree(force=false){
  try{
   const dashboard=await getDashboard(force);
   const topology=dashboard.topology;
+  latestCodexTree=dashboard.codex_threads||{roots:[]};
+  latestCodexRun=dashboard.codex_selected_run||null;
   renderProcessTree(topology,dashboard.focus,dashboard.manual_links||[],dashboard.runs||[],dashboard.claude_run_ids||[]);
   if(detailSelection.type==="process"){
    const find=(nodes)=>{for(const p of nodes||[]){
