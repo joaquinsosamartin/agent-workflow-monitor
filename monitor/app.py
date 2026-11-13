@@ -387,6 +387,32 @@ def selected_codex_session(processes,tree):
             return root["run_id"]
     return None
 
+@app.get('/api/codex/diagnostics')
+async def codex_agent_diagnostics():
+    def inspect():
+        tree=codex_thread_snapshot(store,store.run_list())
+        with store.lock:
+            files=store.conn.execute("""
+                SELECT COUNT(*) FROM observer_files WHERE provider='codex'
+            """).fetchone()[0]
+            latest=store.conn.execute("""
+                SELECT COUNT(*) FROM observer_files
+                WHERE provider='codex' AND last_seen >= datetime('now','-1 day')
+            """).fetchone()[0]
+        return {
+            "known_rollout_files":files,
+            "known_threads":tree["known_threads"],
+            "observed_subagents":tree["subagents"],
+            "selectable_roots":sum(
+                not root.get("parent_thread_id") for root in tree["roots"]),
+            "unverified_root_candidates":sum(
+                root.get("root_confirmed") is False for root in tree["roots"]),
+            "orphaned_subagent_roots":sum(
+                bool(root.get("parent_thread_id")) for root in tree["roots"]),
+            "note":"No PID-to-thread attribution is inferred from timestamps."
+        }
+    return await bounded(inspect,operation="Codex thread diagnostics")
+
 @app.get('/api/codex/agents')
 async def get_codex_agents():
     return await bounded(codex_thread_snapshot,store,store.run_list(),
