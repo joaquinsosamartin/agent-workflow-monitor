@@ -74,6 +74,15 @@ def save_thread_metadata(store, session_key, payload):
     run_id=stable("run","codex",session_key)
     initialize(store)
     with store.lock,store.conn:
+        previous=store.conn.execute("""
+            SELECT parent_thread_id,nickname,role,task FROM codex_agent_threads
+            WHERE thread_id=?
+        """,(identity,)).fetchone()
+        if previous and (previous["parent_thread_id"]==parent or parent is None) \
+            and (not nickname or previous["nickname"]==nickname[:80]) \
+            and (not role or previous["role"]==role[:80]) \
+            and (not task or previous["task"]==task[:160]):
+            return {"thread_id":identity,"parent_thread_id":previous["parent_thread_id"]}
         store.conn.execute("""
             INSERT INTO codex_agent_threads(thread_id,run_id,parent_thread_id,
                 nickname,role,task,updated_at)
