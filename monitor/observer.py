@@ -464,6 +464,13 @@ class SessionObserver:
             self._emit({"run_id":rid,"type":"run.status","status":"running",
                         "external_id":f"claude-active:{session_id}:{row.get('uuid') or row.get('timestamp')}"})
 
+    def _register_codex_thread(self, session_id, payload):
+        """Persist only explicit Codex parent-thread metadata; no PID guesses."""
+        from .codex_agents import save_thread_metadata
+        if not isinstance(payload,dict):
+            return
+        save_thread_metadata(self.store,session_id,payload)
+
     def _codex(self, path, session_id, row):
         typ = row.get("type")
         payload = row.get("payload") or {}
@@ -472,6 +479,8 @@ class SessionObserver:
         cwd = payload.get("cwd","") if typ=="session_meta" else ""
         rid = self._ensure_run("codex",canonical,cwd)
         root = self._ensure_node(rid,"session","Codex CLI session","Codex","codex")
+        if typ == "session_meta":
+            self._register_codex_thread(session_id,payload)
         if typ == "event_msg":
             ev = payload.get("type")
             if ev == "user_message":
