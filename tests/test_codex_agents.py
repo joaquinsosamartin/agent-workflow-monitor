@@ -55,6 +55,32 @@ class CodexAgentTests(unittest.TestCase):
         self.assertEqual(children[0]["role"],"explorer")
         self.assertEqual(children[0]["title"],"Review API")
 
+    def test_subagent_activity_seen_before_child_rollout(self):
+        root="11111111-1111-4111-8111-111111111111"
+        child="22222222-2222-4222-8222-222222222222"
+        parent=self.rollout(root)
+        with parent.open("a",encoding="utf-8") as stream:
+            stream.write(json.dumps({"type":"event_msg","payload":{
+                "type":"sub_agent_activity","kind":"started",
+                "agent_thread_id":child,
+                "agent_path":"/root/reviewer"}})+"\n")
+        self.observer._scan_file("codex",parent)
+        tree=codex_snapshot(self.store,self.store.run_list())
+        root_node=next(x for x in tree["roots"] if x["thread_id"]==root)
+        self.assertEqual(len(root_node["children"]),1)
+        placeholder=root_node["children"][0]
+        self.assertEqual(placeholder["thread_id"],child)
+        self.assertEqual(placeholder["activity"],"started")
+        self.assertFalse(placeholder["run_id"])
+        child_path=self.rollout(child,{"subagent":{"thread_spawn":{
+            "parent_thread_id":root,"agent_nickname":"Reviewer"}}})
+        self.observer._scan_file("codex",child_path)
+        new=codex_snapshot(self.store,self.store.run_list())
+        sub=next(x for x in new["roots"] if x["thread_id"]==root)["children"][0]
+        self.assertTrue(sub["run_id"])
+        self.assertEqual(sub["nickname"],"Reviewer")
+        self.assertEqual(sub["activity"],"started")
+
     def test_backfill_existing_rollout_without_resetting_offset(self):
         root="11111111-1111-4111-8111-111111111111"
         child="22222222-2222-4222-8222-222222222222"
