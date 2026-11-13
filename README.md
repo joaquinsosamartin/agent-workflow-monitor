@@ -200,6 +200,40 @@ Codex root threads belongs to an unlabeled Codex process. In that case,
 select the root session explicitly. Missing costs remain unavailable.
 This feature does not require Claude Code or the Claude Mod.
 
+### Codex root session picker troubleshooting
+
+If the UI shows a live Codex process but the **Sesión del orquestador
+Codex** dropdown is empty, update to a build containing the corrected
+`codex_threads.roots` frontend binding. Older builds mistakenly referenced
+a non-existent `codexRoots` property and hid valid roots. The observer
+also now recovers headers of previously indexed rollouts and lists recent
+unindexed-header sessions as **unverified candidates** for explicit
+selection; it never infers parentage from matching timestamps.
+
+To inspect source availability without exposing raw prompts:
+
+- `GET /api/codex/diagnostics` reports indexed rollout files, known
+  threads, selectable roots, orphaned children and candidate roots.
+- `GET /api/codex/agents` returns the observed thread hierarchy.
+- `GET /api/observer` shows discovered Codex roots and scan errors.
+
+Successful structured `spawn_agent` responses can now identify subagent
+thread IDs even before a child rollout arrives. No prompt or tool arguments
+are retained from these calls.
+
+**If running `dist/agent-monitor.exe`, a `git pull` alone is not enough.**
+Stop the old executable and rebuild it with:
+
+```powershell
+cd C:\git\agent-workflow-monitor
+git pull
+.\scripts\build-windows.ps1
+.\dist\agent-monitor.exe
+```
+
+Do not expect the number of `codex.exe` processes to equal the number of
+internal Codex subagents; they are identified by verified thread IDs.
+
 ## Codex integration and multi-agent workflows
 
 Codex can be observed via its local session files. An opt-in [Codex skill](integrations/codex/README.md) and supervised wrapper allow explicit tracking of delegated work. They do **not** intercept every Codex process or automatically detect all delegations.
