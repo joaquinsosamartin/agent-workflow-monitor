@@ -486,6 +486,11 @@ class SessionObserver:
             self._register_codex_thread(session_id,payload)
         if typ == "event_msg":
             ev = payload.get("type")
+            if ev == "sub_agent_activity" or (ev in ("item_started","item_completed")
+                                               and isinstance(payload.get("item"),dict)
+                                               and payload["item"].get("type")=="SubAgentActivity"):
+                from .codex_agents import save_subagent_activity
+                save_subagent_activity(self.store,rid,payload)
             if ev == "user_message":
                 title=short_title(payload.get("message"))
                 if title:
