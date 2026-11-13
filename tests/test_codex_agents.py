@@ -133,6 +133,13 @@ class CodexAgentTests(unittest.TestCase):
         self.assertFalse(parent["children"][0]["run_id"])
         self.assertNotIn("private",str(result))
 
+    def test_frontend_reads_codex_roots_contract(self):
+        ui=(Path(__file__).resolve().parents[1]/"monitor"/"static"/"index.html").read_text(encoding="utf-8")
+        self.assertIn("latestCodexTree.roots",ui)
+        self.assertIn("topology.roots",ui)
+        self.assertNotIn("latestCodexTree.codexRoots",ui)
+        self.assertNotIn("topology.codexRoots",ui)
+
     def test_no_parent_guessed_from_other_metadata(self):
         parent,source=source_parent({
             "id":"22222222-2222-4222-8222-222222222222",
