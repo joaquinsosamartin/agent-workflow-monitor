@@ -418,6 +418,12 @@ def build_dashboard():
     focus = current_focus(processes)
     codex_tree=codex_thread_snapshot(store,runs)
     active_codex_run=selected_codex_session(processes,codex_tree)
+    active_thread=next((r for r in codex_tree["roots"]
+                       if r["run_id"]==active_codex_run),None)
+    thread_ids=[active_codex_run] if active_codex_run else []
+    if active_thread:
+        thread_ids += [a["run_id"] for a in collect_descendants(active_thread)]
+    codex_metrics=session_metrics(set(thread_ids))
     sessions = current_agent_sessions(processes,runs)
     run_metrics=session_metrics({
         run["id"] for items in sessions.values() for run in items
@@ -450,6 +456,7 @@ def build_dashboard():
         "session_metrics": run_metrics,
         "codex_threads":codex_tree,
         "codex_selected_run":active_codex_run,
+        "codex_metrics":codex_metrics,
         "checked_at": processes["checked_at"],
     }
 
