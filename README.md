@@ -1,664 +1,313 @@
-# Agent Workflow Monitor — MVP 0.1
+# Agent Workflow Monitor
 
-Local-first agent execution monitor using **Python, FastAPI, SQLite (WAL), and Server-Sent Events (SSE)**.
+**Local-first observability for AI coding agents and multi-agent workflows.**
 
-An interactive vertical workflow timeline shows steps and substeps, the responsible Codex/Claude agent, status, token usage and USD costs. Supports a local demo and programmatic event ingestion.
+Track Claude Code and OpenAI Codex from one dashboard: identify live agents, organize their conversations, follow execution timelines and handoffs, inspect available token/cost data, and measure the performance overhead of the monitor itself.
 
-## Quick start (Windows)
+[![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![SQLite](https://img.shields.io/badge/SQLite-local%20data-003B57?logo=sqlite&logoColor=white)](https://sqlite.org)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+![Status](https://img.shields.io/badge/Status-active%20development-orange)
 
-Requirements: Python 3.12+ and Git.
+> **Early-stage software.** The web dashboard, local observers, Claude Code Mod, shared workflow API and explicit delegation tools are implemented at varying levels of maturity. Automatic correlation across all Codex and Claude processes, sessions and agents remains incomplete. Some integrations depend on evolving provider APIs.
 
-```powershell
+## Why this project?
+
+A development task can span a **Codex orchestrator**, multiple **Claude agents**, several conversations per agent and phases executed by different providers. Native CLI views don't provide a reliable cross-agent picture.
+
+Agent Workflow Monitor helps answer:
+
+- **What's running?** Which Codex and Claude processes are actually alive?
+- **Who's working on what?** Which agent and conversation belong to the execution being monitored?
+- **What happened?** Which steps completed, failed or await validation?
+- **What did it consume?** Which token and USD cost figures are actually supported by provider data?
+- **What's the overhead?** How much CPU, memory and latency does monitoring itself introduce?
+
+## Features
+
+| Capability | Current behavior |
+| --- | --- |
+| **Local agent discovery** | Detect Codex/Claude processes and incrementally read supported session JSONL files. |
+| **Focused orchestrator view** | Select one live Codex as the primary process and display its related Claude agents instead of every Codex process. |
+| **Agent-centric sessions** | Browse multiple Claude conversations per agent, with verified or explicitly confirmed associations. |
+| **Workflow timeline** | Explore session steps, nested activity, states, timestamps and event history. |
+| **Provider-neutral plans** | Define phases/subphases, ownership and handoffs across Codex, Claude and future adapters. |
+| **Delegation tracking** | Explicitly supervised agent launches record the executor, orchestrator, PID, exit status and timestamps. |
+| **Usage and cost reporting** | Show available input/output tokens and reported or estimated costs, with partial/unavailable labels. |
+| **Claude Code Mod** | Native \`/workflow\` pane for local session state, subagents, tools and shared plans. |
+| **Performance dashboard** | CPU, RAM, p95 latencies and event charts with bounded local history. |
+| **Local API and SSE** | HTTP endpoints for sessions, workflow plans, agent mappings, events, metrics and live updates. |
+
+**Process ≠ conversation ≠ workflow phase.** The monitor does not automatically claim that one agent delegated work to another based on similar timestamps, task titles or OS process ancestry.
+
+## Architecture
+
+\`\`\`mermaid
+flowchart TD
+  C["Codex CLI"] --> O["Process and JSONL observers"]
+  L["Claude Code"] --> O
+  L --> M["Claude Code Mod (optional)"]
+  M -->|"Batched metadata"| API["FastAPI · localhost:8765"]
+  O --> API
+  D["Explicit orchestration adapters"] --> API
+  API --> S[("SQLite WAL · sessions and workflows")]
+  API --> P[("SQLite · performance history")]
+  API -->|"HTTP + SSE"| UI["Local web dashboard"]
+\`\`\`
+
+**Local-first** means no Azure, AWS, cloud database or hosted monitoring service is required. The Python backend serves the web UI and listens on \`127.0.0.1\`.
+
+## Installation
+
+### Requirements
+
+- **Windows 10/11** is the primary target. The Python backend can run on other platforms when CLI paths and dependencies are compatible.
+- **Python 3.12+** and Git; the Windows scripts expect the \`py\` launcher.
+- Optional: **Claude Code** and/or **Codex CLI**, installed separately. Neither is required for the demo.
+
+### Quick start — Windows
+
+\`\`\`powershell
 git clone https://github.com/joaquinsosamartin/agent-workflow-monitor.git
 cd agent-workflow-monitor
 .\scripts\start-windows.ps1
-```
+\`\`\`
 
-Open **http://127.0.0.1:8765** and press **Crear ejecución de demostración**.
+The script creates a virtual environment, installs dependencies and starts the backend. Open **http://127.0.0.1:8765**.
+
+Use **Crear ejecución de demostración** to explore without an agent running. For real work, select the Codex process you're using and confirm the relevant Claude processes or conversations when a reliable automatic link is unavailable.
+
+### Manual installation
+
+\`\`\`powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m monitor serve
+\`\`\`
 
 Cross-platform alternative:
 
-```bash
-python -m pip install -r requirements.txt
+\`\`\`bash
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
 python -m monitor serve --no-browser
-```
+\`\`\`
 
-## Build standalone Windows EXE
+To use a different port, run \`python -m monitor serve --port 8766\`. Note that the optional Claude Mod bridge currently uses port **8765**.
 
-On Windows:
+### Update an existing installation
 
-```powershell
-.\scripts\build-windows.ps1
-.\dist\agent-monitor.exe
-```
-
-Windows builds must be produced on Windows. The executable is created with PyInstaller and includes the backend and HTML UI. No Python installation is needed to **run** that EXE. This repository contains source code and the Windows build script; **no precompiled EXE is included**.
-
-Data: `%USERPROFILE%\.agent-monitor\monitor.db` and `api.key`. Override with `AGENT_MONITOR_DATA`. Listens only on `127.0.0.1:8765`.
-
-## API
-
-- `GET /api/runs` — list runs
-- `POST /api/runs` — create run
-- `POST /api/runs/{run_id}/nodes` — add step or substep
-- `POST /api/runs/{run_id}/events` — push status, usage or log event
-- `GET /api/runs/{run_id}` — snapshot
-- `GET /api/runs/{run_id}/events` — SSE updates
-- `GET /api/runs/{run_id}/history` — persisted event history
-- `POST /api/demo` — create a populated demonstration
-
-Writes require header `X-Monitor-Key`, read from `~/.agent-monitor/api.key`. Run and workflow IDs are UUIDs by default. The static UI is only served on localhost.
-
-Example for event ingestion after creating run/node via the API:
-
-```json
-{
-  "type": "usage",
-  "node_id": "YOUR_NODE_ID",
-  "provider": "codex",
-  "agent": "Codex · Developer",
-  "usage": {
-    "session_id": "session-001",
-    "usage_key": "turn-1",
-    "input_tokens": 2400,
-    "output_tokens": 800,
-    "cached_input_tokens": 450,
-    "cost_source": "unavailable"
-  }
-}
-```
-
-## Monitor supervised CLIs
-
-After creating a workflow run and a node, start the monitor server and invoke:
-
-```powershell
-python -m monitor run --provider codex --run-id YOUR_RUN_ID --node-id YOUR_NODE_ID --agent "Codex" -- codex exec --json "Inspect the project"
-python -m monitor run --provider claude --run-id YOUR_RUN_ID --node-id YOUR_NODE_ID --agent "Claude" -- claude -p "Inspect the project" --output-format stream-json --verbose
-```
-
-This initial integration is a **best-effort event adapter**. Claude result events may include reported `total_cost_usd`; Codex usage records are stored without inventing a dollar value. Agent event schemas vary by CLI version and must be tested in your environment.
-
-## Attribution and costs
-
-Usage is keyed by `(run_id, session_id, usage_key)` and upserted idempotently. Do not sum overlapping session totals and per-turn usage. Cached input tokens may already be included in input counts, so do not double count them. A cost can be **reported**, **estimated**, or **unavailable**. A subscription's effective billed cost may differ from token pricing.
-
-Substep-level metrics are reliable only when the invocation or event can be attributed to that substep. The monitor does not invent fine-grained attribution from session totals.
-
-## Tests
-
-```bash
-python -m unittest discover -s tests -v
-```
-
-## Roadmap
-
-1. **Orca integration:** embedded side panel consuming the same SSE/API contract.
-2. **Claude Code Mod:** native panel/hooks adapter where supported.
-3. **Codex integration:** hooks/CLI/app-server bridge and external dashboard.
-4. More accurate subagent tracing, session discovery and duration analytics.
-
-Current limitations: no native Orca/Deck plugin, Claude Mod or Codex plugin yet; no automatic discovery of running CLI sessions. This is an initial local MVP, not a production-hardened multi-user service.
-
-
-## Automatic local session discovery (v0.2)
-
-**Enabled by default when Agent Monitor starts.** No hooks, modifications to Claude/Codex settings, or changes to how you launch the CLIs are required.
-
-The collector reads **only new complete JSONL lines**, remembering byte offsets in SQLite:
-
-- Claude CLI: \`%USERPROFILE%\.claude\projects\...\*.jsonl\`, plus subagent JSONL files.
-- Codex CLI: \`%USERPROFILE%\.codex\sessions\YYYY\MM\DD\rollout-*.jsonl\`.
-- Custom roots: \`CLAUDE_CONFIG_DIR\` (parent of \`projects\`) and \`CODEX_HOME\` (parent of \`sessions\`).
-
-**Restart the server** after pulling updates:
+Stop the running server first (\`Ctrl+C\`), then:
 
 \`\`\`powershell
-cd C:\git\agent-workflow-monitor
-git pull
-# Ctrl+C in the old monitor terminal, then:
-.\.venv\Scripts\python.exe -m monitor serve
-\`\`\`
-
-To see the observer state, open:
-
-\`\`\`text
-http://127.0.0.1:8765/api/observer
-\`\`\`
-
-Then open Claude Code / Codex CLI as usual and send a prompt. New sessions appear in the left-hand list automatically, without wrapping the CLI process. Sessions with no transcript activity for two minutes are marked **idle**, not completed (idle is an inference from file inactivity).
-
-You can trigger an immediate scan with \`POST /api/observer/scan\` using the API key header. The poll interval defaults to 2 seconds; newly discovered records are visible on the dashboard within a few seconds.
-
-**Optional environment settings**:
-
-- \`AGENT_MONITOR_OBSERVE=0\` — turn off discovery.
-- \`AGENT_MONITOR_POLL_SECONDS=5\` — alter scan frequency.
-- \`AGENT_MONITOR_LOOKBACK_HOURS=24\` — discover files modified in the past 24 hours.
-
-The default lookback is **12 hours** and at most 250 recent transcript files are scanned per provider per cycle. Already discovered files resume from stored offsets across restarts.
-
-**Privacy:** input prompts, code, tool arguments, tool results, and message bodies are not stored. We retain the source session identifier, project name, tool name, status, usage counters, event metadata, and agent identifier. Tool call identifiers are kept locally in SQLite. The dashboard listens on loopback only. Avoid exposing the API to a network without additional authentication.
-
-**Accuracy and limitations:**
-
-- Claude transcript assistant messages can report model token counts. Costs are **unavailable**, because the transcript does not provide a verified price per message. Some message records represent updates of the same message ID; usage is upserted rather than summed as separate records.
-- Codex \`token_count.info.total_token_usage\` is cumulative for a session, so it replaces the previous snapshot instead of being added to it. Cache tokens are a subset of input tokens.
-- Costs per substep require actual correlated usage data. The observer does not allocate session totals to tool calls without evidence.
-- Formats of local JSONL transcripts are provider-internal and may change. Claude subagent support is best-effort.
-- Tool calls become substeps of a session; a Claude subagent has its own child node, which can contain nested tools. Up to 100 tool nodes are collected per parent.
-- Automatic task plans, explicit phase names from a SDD workflow, Codex multi-agent attribution, and historical cost estimates require future integrations.
-- This does not install a Claude Mod, Codex Plugin, or Orca sidebar plugin. Those remain independent planned adapters of the shared Python core.
-
-Test the observer with synthetic transcript files:
-
-\`\`\`powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-\`\`\`
-
-## Session and agent titles, active/inactive groups, timestamps
-
-The sidebar shows **active sessions first**, highlighted on the left in green, followed by a collapsible inactive group. Each session displays its task title, project, responsible agent, most recently observed operation and update timestamp. Steps/substeps and the activity history also show local date and time (day/month/year, hour:minute). The activity history includes the 40 most recent events.
-
-Session titles are derived from the **first user instruction** in a Claude or Codex transcript, shortened to 105 characters, or from a neutral fallback if unavailable. Claude delegated Task/Agent tool descriptions are displayed as agent operations; the detailed delegated prompt is not retained. This feature stores a short fragment of the user's instruction in local SQLite, unlike the previous metadata-only observer. Do not monitor sensitive projects unless this local retention is acceptable. No content leaves the computer via the monitor.
-
-Session inactivity is inferred from transcript modification time. An inactive session may still have an open process or be waiting for human input.
-
-For changes to appear after `git pull`, restart the FastAPI process and refresh the browser (Ctrl+F5). Previous discovered transcripts are processed incrementally, so titles of **already ingested** sessions may retain fallback values; newly created sessions acquire descriptive titles automatically.
-
-## Less noisy workflow UI (2026-11-11)
-
-- All agent actions/substeps now **start collapsed**. Click a workflow node to reveal them, and click nested nodes to expand deeper operations.
-- The overall event history is hidden until you select **Ver historial de acciones**.
-- SSE notifications are debounced for 2 seconds. Unchanged session lists are not reconstructed. The SSE endpoint sends only *new* events when no cursor is provided; historical events remain accessible through `/history`.
-- Previously discovered sessions are reconciled even when their transcript files fall outside the discovery lookback, preventing stale `running` statuses from persisting forever.
-- **Active means recent transcript activity, not verified live OS processes.** The observer waits up to 2 minutes without transcript modification before marking an observed session idle. Claude/Codex sessions may outnumber currently open windows because one CLI can have multiple conversation IDs, session resumes, and past sessions in SQLite. Demo runs and manually created runs are also stored independently.
-- The SQLite history is deliberately retained; no existing sessions are deleted by this update.
-
-After `git pull`, restart the monitor process and hard-refresh the browser. For an exact live-process count, a separate process-to-session association mechanism will be needed.
-
-## Process presence detection (v0.3)
-
-`psutil` enumerates Claude/Codex CLI processes locally (read-only). Use:
-
-```text
-http://127.0.0.1:8765/api/processes
-```
-
-The sidebar distinguishes **verified linked processes** (green when the transcript changed within 2 minutes, amber when the process exists but the transcript is idle), **recent unverified activity** (blue), and a collapsible **inactive/historical** section. It displays the total CLI processes detected and how many sessions could actually be linked.
-
-A correlation is marked *verified* only when the process command line explicitly contains an exact session UUID in a supported `resume <uuid>` / `--resume <uuid>` form and this UUID matches a local Claude/Codex transcript file. Many newly launched CLI processes do **not** expose their session IDs in the command line: these remain **unverified**, even though they may be live. We do not attach a process merely because it shares a working directory or project name.
-
-Process count and session count are different: terminal wrappers, resumed sessions, previous conversation IDs and subagents can cause discrepancies. Also, corporate security software can restrict process inspection. A verified "waiting" process is still running but is not emitting new transcript lines.
-
-Use `git pull`, install the changed dependencies with
-` .\.venv\Scripts\python.exe -m pip install -r requirements.txt `,
-stop the old monitor process and run it again. This update is intentionally read-only and retains all historical SQLite records.
-
-The Orca adapter, Claude Mod, and Codex plugin are still future integrations; this release only enriches the common local monitor.
-
-## Diagnóstico: Codex visible como proceso pero no como sesión
-
-En Windows, el panel ahora distingue **procesos CLI** y **sesiones observadas**. Un Codex ejecutándose normalmente puede no llevar el ID de sesión en su comando; aparecerá bajo «Procesos sin sesión vinculada» hasta que se encuentre y se correlacione su registro JSONL. No presupone que todos los procesos sean sesiones independientes.
-
-- `GET /api/processes`: totales separados para Codex y Claude, PIDs de procesos sin sesión y relaciones de ascendencia de procesos (son pistas, no pruebas de delegación).
-- `GET /api/observer`: rutas comprobadas, existencia de cada directorio, número de JSONL y número de archivos recientes.
-- Se observan `%USERPROFILE%\.codex\sessions` y, si `CODEX_HOME` no está configurado, `%APPDATA%\codex\sessions`. No se accede a WSL de forma automática.
-- Si Codex está en WSL o utiliza otro `CODEX_HOME`, inicia Agent Monitor en ese entorno o configura una ruta de sesiones accesible por Windows; no dupliques directorios de datos ni copies archivos de autenticación.
-- Los títulos y la jerarquía de Claude/Codex siguen dependiendo de los eventos realmente observables; la ascendencia entre procesos no implica que un Claude sea un subagente de un Codex.
-
-Para actualizar sin GitHub Actions:
-
-```powershell
-cd C:\git\agent-workflow-monitor
 git pull
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m monitor serve
-```
+\`\`\`
 
-Después abre `http://127.0.0.1:8765/api/processes` y `http://127.0.0.1:8765/api/observer`. No publiques datos completos de rutas o PID si no quieres compartir detalles de tu equipo.
+Use **Ctrl+F5** to refresh the browser after UI updates.
 
-## Codex sessions not visible on Windows — diagnostic and fix
+## Using the dashboard
 
-If `/api/processes` reports Codex processes but the left sidebar shows only Claude:
+### Executions
 
-1. A Codex `task_complete` is **completion of a turn, not the entire session**. The observer now keeps the run available and repairs old incorrect states without deleting history.
-2. A malformed line in one rollout file no longer stops discovery of subsequent lines or files.
-3. A recognized `session_meta` header creates a visible Codex session immediately, with the project inferred from its Windows working directory.
-4. The observer endpoint now exposes `last_scan.by_provider`, `ingested` (distinct sessions and files), and `failing_files`. It does not expose the raw transcript.
-5. Unmatched Codex/Claude processes appear **above** historical sessions. Claude subprocesses with a known parent CLI process are visually grouped; these links are process relationships only, not authenticated task delegation.
+The left panel focuses on one orchestrated job rather than displaying each detected process as a separate work session:
 
-Update locally (no GitHub Actions are configured):
+1. **Select the active Codex process** using its PID and start time.
+2. **Associate the Claude processes** involved in that work where the relationship cannot be verified automatically.
+3. **Open the sessions under an agent** to inspect its conversations, activity, workflow and available usage.
+4. **Open a session** to see its detailed execution timeline.
 
-```powershell
-cd C:\git\agent-workflow-monitor
-git pull
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-.\.venv\Scripts\python.exe -m monitor serve
-```
+Unlinked conversations remain in the collapsed history section. Process/session associations use PID plus process creation time to reduce incorrect reuse when Windows recycles a PID.
 
-Restart the old server before using the new version, and refresh the browser with Ctrl+F5. Then inspect `http://127.0.0.1:8765/api/observer` and `http://127.0.0.1:8765/api/processes`.
+### Performance
 
-**Remaining limitation:** starting Codex normally does not expose its session UUID in the process command line. The process may be visible even if its JSONL is not current or its session cannot be linked; this cannot be safely resolved by matching similar timestamps alone. Showing “Codex orchestrates these two Claude agents” requires correlated launch events/trace IDs or explicit instrumentation.
+The **Performance** tab displays backend CPU and memory, p95 latencies for JSONL scans/SQLite writes/dashboard/Claude hooks, and received/processed/dropped event counters. Select historical windows of **1, 6, 24 or 48 hours**. Samples are kept in a separate local SQLite database with default **15-second** sampling and **48-hour** retention.
 
-## Árbol de orquestadores y agentes (11/11/2026)
+## Claude Code Mod
 
-El lateral incluye ahora **PROCESS TREE**, por encima del historial de sesiones:
+The optional [Claude Code Mod](integrations/claude-mod/README.md) provides an embedded native pane. With the Python server running, start a new terminal:
 
-- Codex se muestra como proceso detectado, incluso cuando todavía no puede vincularse a un JSONL.
-- Las relaciones de proceso hijo/descendiente se reflejan como árbol y se pueden contraer.
-- Si un Claude no tiene un padre detectable, puedes pulsar **Asociar manualmente a Codex**, escoger el PID del orquestador y confirmar. Se mostrará como **Vinculación confirmada manualmente**.
-- El botón **Desvincular de Codex** elimina esa relación manual.
-- La asociación queda vinculada a PID y timestamp de creación de **ambos** procesos, evitando reutilización accidental del PID en una sesión posterior.
-- Una asociación manual es tu declaración sobre la orquestación; no demuestra que el registro de tokens de Claude pertenezca al Codex padre. Solo se agregará consumo cuando exista atribución verificable.
-- El árbol se obtiene de `GET /api/topology`; `POST /api/topology/links` y `DELETE /api/topology/links/{child_pid}` guardan y eliminan asociaciones autorizadas con `X-Monitor-Key`.
-
-Las sesiones de conversación siguen estando disponibles debajo. El nuevo árbol **no sustituye** su historial ni sus eventos. No hay workflows de GitHub Actions.
-
-### Actualizar y verificar en Windows
-
-Detén el proceso Agent Monitor actual y ejecuta:
-
-```powershell
-cd C:\git\agent-workflow-monitor
-git pull
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-.\.venv\Scripts\python.exe -m monitor serve
-```
-
-Actualiza el navegador con `Ctrl+F5` y consulta también `http://127.0.0.1:8765/api/topology`. Si los nodos Codex están presentes pero no sus sesiones, revisa el JSON de `/api/observer` para diagnosticar registros JSONL.
-
-## HTTP requests remaining Pending (Windows)
-
-Expected: `GET /api/runs/{id}/events` stays open, because it is Server-Sent Events (SSE).
-
-Unexpected: a second `/api/dashboard`, `/api/topology`, or a `POST /api/topology/links` remaining pending indefinitely. The November 11 fix addresses this by:
-
-- Refreshing Windows process information on a background thread; HTTP requests return the last cached process snapshot without waiting for `psutil.process_iter`.
-- Caching the PID ancestry map instead of walking Windows processes synchronously on every HTTP request.
-- Returning an HTTP 503 with a logged timeout after 5 seconds for a dashboard/topology/link operation blocked by another lock.
-- Aborting browser JSON requests after 8 seconds (SSE connections are deliberately unaffected).
-
-After updating, restart Agent Monitor (not just refresh the tab), then measure responses:
-
-```powershell
-cd C:\git\agent-workflow-monitor
-git pull
-.\.venv\Scripts\python.exe -m monitor serve
-```
-
-```powershell
-foreach ($url in @('/api/health','/api/dashboard','/api/dashboard','/api/topology')) {
-  try {
-    $watch = [Diagnostics.Stopwatch]::StartNew()
-    $reply = Invoke-WebRequest "http://127.0.0.1:8765$url" -TimeoutSec 8 -UseBasicParsing
-    $watch.Stop()
-    "$url - HTTP $($reply.StatusCode) - $($watch.ElapsedMilliseconds) ms"
-  } catch { "$url - ERROR: $($_.Exception.Message)" }
-}
-```
-
-If `/api/health` is fast but dashboard returns 503, provide the error from the server terminal; this narrows the issue to the database/observer instead of the HTTP event loop. No GitHub Actions workflow is configured or triggered.
-
-## Vista predeterminada: solo ejecuciones abiertas
-
-La barra lateral muestra ahora únicamente **grupos de procesos CLI vivos** (Codex/Claude) como vista principal, con ramas contraídas por defecto. Cada grupo principal representa el proceso raíz observado y sus descendientes, no todos los archivos JSONL históricos. El historial de conversaciones SQLite continúa disponible, pero **contraído bajo «HISTORIAL DE SESIONES»** y no se selecciona automáticamente al abrir la página.
-
-Esto reduce el ruido de sesiones antiguas y no elimina datos. **Limitación:** un proceso vivo no equivale necesariamente a una sesión iniciada manualmente por el usuario. Algunas herramientas lanzan procesos auxiliares y otras no exponen sus IDs. Para disponer de una lista exactamente igual a las sesiones que inicias personalmente será necesario registrar los lanzamientos o recibir IDs de sesión mediante hooks/SDK. No se infiere una identidad de sesión por coincidencia de horarios.
-
-Actualiza con `git pull` y recarga `Ctrl+F5`; es un cambio de interfaz y no requiere GitHub Actions.
-
-## Orchestrator details: coordinated agents (November 2026)
-
-When selecting a **Codex process** in the live process tree, the right-side *Agent Execution* detail now includes an **AGENTES COORDINADOS** section below its timeline. Each Claude branch associated with the Codex process appears as a compact card with PID, observed relationship, a last activity label when available, and two actions:
-
-- **Ver resumen / Contraer:** expand an inline summary without navigating away from the orchestrator.
-- **Abrir agente:** open that Claude's full process detail in the same right-hand panel, maintaining the user's explicit selection.
-- **Abrir workflow de la sesión** (when a session is verified): open its associated workflow with token and cost information.
-
-Process ancestry or a manually confirmed link identifies grouping only; it does **not** prove agent delegation or token attribution. No separate Claude costs are added to the Codex totals unless an attributable session is available. The display refreshes on topology changes without forcing selection to the latest active session.
-
-UI-only update: `git pull` and browser `Ctrl+F5` while the local FastAPI server serves the same working tree. GitHub Actions are not configured or run.
-
-## Multi-agent plans: phases can belong to different providers
-
-A plan is independent of any one Claude or Codex session. Phases and subphases
-have stable IDs, explicit `provider` (`codex`, `claude`, `orca`, `system`, `other`),
-`agent_id`, `status`, optional `session_id`, and timestamps.
-
-- `POST /api/workflows` — create/update a plan (requires `X-Monitor-Key`)
-- `GET /api/workflows` — list shared plans
-- `GET /api/workflows/{id}` — full tree of phases/subphases
-- `POST /api/workflows/{id}/phases/{phase_id}` — update status,
-  provider, agent or session; idempotent using an `event_id`
-
-A phase can transfer ownership from Codex to Claude without being duplicated.
-An orchestrator can delegate different subphases to different providers and
-run them concurrently. Provider ownership is separate from task completion.
-The schema does not claim that execution actually occurred; events must
-come from the relevant agent integration.
-
-### Create a sample plan locally on Windows
-
-With the backend running in another PowerShell terminal:
-
-```powershell
-cd C:\git\agent-workflow-monitor
-$key = (Get-Content "$HOME\.agent-monitor\api.key").Trim()
-$body = Get-Content .\examples\multi-agent-workflow.json -Raw
-Invoke-RestMethod "http://127.0.0.1:8765/api/workflows" `
-    -Method Post -ContentType "application/json" `
-    -Headers @{ "X-Monitor-Key" = $key } -Body $body
-```
-
-Then open Claude with the Mod:
-
-```powershell
+\`\`\`powershell
+claude --version
+claude plugin validate .\integrations\claude-mod
 claude --plugin-dir .\integrations\claude-mod
-```
+\`\`\`
 
-Inside Claude run `/workflow`, select the **POPS — Customer API** plan
-and expand phases. The Mod displays provider labels (Codex/Claude) and
-nested steps from the shared backend. Existing agent data and session
-activity are shown separately.
+Inside Claude Code:
 
-The Mod's plan view is **read-only** in this iteration: it does not
-automatically infer completion from file edits or tool names. Further work
-will add explicit `TaskCreate/TaskUpdate` mapping and adapters for Codex/Orca.
-No GitHub Actions are configured or run.
+\`\`\`text
+/workflow
+\`\`\`
 
-## Provider handoffs and Claude Task synchronization
+The Mod displays session status, observed subagents, recent tools, context usage and shared workflow plans. A bounded, best-effort bridge sends selected metadata to the local backend. API compatibility depends on the Claude release and the surface where the Mod is loaded.
 
-The workflow core now preserves an **append-only phase audit** in
-`workflow_phase_history`. Each event records the previous and next
-provider, agent, session, status and UTC timestamp. Re-importing an old
-plan no longer resets ownership after a handoff has been recorded.
+**Context-window occupancy is not billable token usage**; no USD charge is inferred from context size.
 
-The Claude Code Mod now observes **successful** `TaskCreate` and
-`TaskUpdate` tool calls. This integration is deliberately opt-in per
-plan: select the shared plan using `/workflow` before asking Claude to
-create or update tasks. A successful TaskCreate with a structured task ID
-adds a new `claude-task-<hash>` phase to that selected plan; later updates
-change the same phase's status, subject and owner. Only that Claude-owned
-task may be updated through the task import endpoint. Existing Codex/Orca
-phases are not automatically reassigned.
+## Codex integration and multi-agent workflows
 
-The phase history is returned from `GET /api/workflows/{id}` and appears
-under an expanded phase in the Mod. The generic cross-provider handoff API
-remains `POST /api/workflows/{id}/phases/{phase_id}`. Task ingestion uses
-`POST /api/integrations/claude/task-events` with the existing local API key.
+Codex can be observed via its local session files. An opt-in [Codex skill](integrations/codex/README.md) and supervised wrapper allow explicit tracking of delegated work. They do **not** intercept every Codex process or automatically detect all delegations.
 
-### Test a mixed-provider plan and Claude tasks
+Install the skill for your local Codex setup on Windows:
 
-1. `git pull`, stop the old FastAPI process, and restart with
-   ` .\.venv\Scripts\python.exe -m monitor serve ` from the project root.
-2. Start a **new** Claude session with
-   `claude --plugin-dir .\integrations\claude-mod`.
-3. Enter `/workflow`, select your shared plan, and expand the phases.
-4. Ask Claude to create a new task in its task list and mark it in
-   progress/completed using its TaskCreate/TaskUpdate tools.
-5. Click **Actualizar** in the Mod, then inspect
-   `http://127.0.0.1:8765/api/workflows/<your-plan-id>`.
+\`\`\`powershell
+$target = Join-Path $HOME ".agents\skills\agent-workflow-delegate"
+New-Item -ItemType Directory -Force -Path $target | Out-Null
+Copy-Item .\integrations\codex\skills\agent-workflow-delegate\SKILL.md $target -Force
+\`\`\`
 
-An example mixed plan is `examples/multi-agent-workflow.json` and
-the root README contains the PowerShell command to import it.
+Restart Codex. After creating a workflow plan with the desired phase IDs (see [sample plan](examples/multi-agent-workflow.json)), track a delegated Claude execution using:
 
-**Limits:** Claude Mod tool input/output shapes vary by release.
-The adapter only accepts a task ID from a structured successful tool
-result, never from guessed text. If your version exposes a different
-shape, the Mod may display a diagnostic and the new task will not be
-imported. This is not a substitute for Codex or Orca instrumentation:
-they must send their own phase updates. No tokens or costs are inferred
-from task status, and Claude's context-window occupancy remains separate
-from billable usage.
+\`\`\`powershell
+.\.venv\Scripts\python.exe -m monitor delegate --plan pops-customer-api --phase qa --provider claude --agent qa-reviewer --orchestrator-provider codex -- claude -p "Review the implementation and report findings"
+\`\`\`
 
-Run tests locally:
-```powershell
+The wrapper records execution identity, PID, start/end time and exit status — **not the prompt or tool output**. A successful process exit leaves the phase **waiting for explicit acceptance**, rather than automatically declaring the work complete.
+
+Read more in [Codex integration](integrations/codex/README.md).
+
+## Technologies
+
+| Layer | Stack |
+| --- | --- |
+| Runtime | Python 3.12+ |
+| API | FastAPI, Uvicorn, Pydantic v2 |
+| Storage | SQLite (WAL) |
+| Process and session observation | psutil, incremental JSONL parsing |
+| Frontend | HTML, CSS, vanilla JavaScript, SVG |
+| Live updates | HTTP and Server-Sent Events (SSE) |
+| Claude integration | Claude Code Mod (experimental JavaScript hooks) |
+| Codex integration | CLI observer, delegation wrapper, local skill |
+| Windows packaging | PyInstaller |
+| Tests | Python unittest |
+
+### Repository layout
+
+\`\`\`text
+agent-workflow-monitor/
+├── monitor/
+│   ├── app.py                   # API and integration endpoints
+│   ├── observer.py              # Incremental Claude/Codex JSONL reader
+│   ├── process_watch.py         # Live process discovery
+│   ├── topology.py              # Process relationships
+│   ├── workflow_plan.py         # Provider-neutral plans
+│   ├── workflow_delegation.py   # Explicit execution tracking
+│   ├── performance_history.py  # Sampled metrics
+│   └── static/index.html       # Web dashboard
+├── integrations/
+│   ├── claude-mod/              # Native Claude pane and bridge
+│   └── codex/                   # Skill and setup
+├── examples/                    # Multi-provider example
+├── scripts/                     # Windows startup/build scripts
+├── tests/                       # Offline tests
+├── entry.py
+└── requirements.txt
+\`\`\`
+
+## Configuration and local storage
+
+Configure settings through environment variables **before starting the backend**:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| \`AGENT_MONITOR_DATA\` | \`~/.agent-monitor\` | Local data directory |
+| \`AGENT_MONITOR_OBSERVE\` | \`1\` | Enable JSONL discovery; \`0\` disables it |
+| \`AGENT_MONITOR_POLL_SECONDS\` | \`5\` | JSONL scan interval |
+| \`AGENT_MONITOR_LOOKBACK_HOURS\` | \`12\` | Recent transcript discovery period |
+| \`AGENT_MONITOR_DASHBOARD_SECONDS\` | \`10\` | Web dashboard refresh |
+| \`AGENT_MONITOR_PERF_INTERVAL_SECONDS\` | \`15\` | Performance sampling |
+| \`AGENT_MONITOR_PERF_RETENTION_HOURS\` | \`48\` | Metrics retention |
+| \`AGENT_MONITOR_METRIC_SAMPLES\` | \`300\` | Rolling latency sample capacity |
+
+By default, the monitor writes:
+
+\`\`\`text
+~/.agent-monitor/
+├── monitor.db       # Sessions, events, usage, agent relationships and plans
+├── performance.db   # CPU, memory, latency and event samples
+└── api.key          # Local API write key
+\`\`\`
+
+Claude transcripts are usually under \`~/.claude/projects\` and Codex session data under \`~/.codex/sessions\` (also some Windows AppData locations). Use \`CLAUDE_CONFIG_DIR\` or \`CODEX_HOME\` for custom locations. A native Windows monitor does not automatically read WSL sessions.
+
+### Privacy and security
+
+- The backend **binds to localhost** (\`127.0.0.1\`) and requires no cloud account.
+- API mutations require \`X-Monitor-Key\`. The localhost bootstrap exposes the key to the local browser; **this mechanism is not suitable for an internet-facing deployment**.
+- The observer does not intentionally store full prompts, tool arguments, outputs or code, but **short session titles can be derived from user instructions**. Treat the databases as potentially sensitive.
+- Cost and token totals are labeled as **reported**, **estimated**, **partial** or **unavailable** where supported. Subscription prices are not identical to API token charges.
+- A process being a child of another process does **not** by itself confirm that work was delegated between coding agents.
+- Local data remains on your machine unless you explicitly share or export it.
+
+## API
+
+Useful endpoints (many write operations require \`X-Monitor-Key\`):
+
+| Endpoint | Purpose |
+| --- | --- |
+| \`GET /api/health\` | Basic health |
+| \`GET /api/dashboard\` | Process, session, focus and association snapshot |
+| \`GET /api/observer\` | Session-discovery diagnostics |
+| \`GET /api/runs/{id}\` | Session details, timeline and usage |
+| \`GET /api/runs/{id}/events\` | Live SSE stream |
+| \`GET /api/workflows\` | Shared plans |
+| \`GET /api/workflows/{id}\` | Phases and owner history |
+| \`GET /api/workflows/{id}/executions\` | Delegated execution records |
+| \`GET /api/performance\` | Live performance metrics |
+| \`GET /api/performance/history?hours=6\` | Historical performance samples |
+| \`POST /api/integrations/claude/events/batch\` | Ingest Claude Mod telemetry |
+
+With the server running, use [FastAPI's interactive API docs](http://127.0.0.1:8765/docs) for the full route catalog.
+
+## Standalone Windows build
+
+\`\`\`powershell
+.\scripts\build-windows.ps1
+.\dist\agent-monitor.exe
+\`\`\`
+
+The PyInstaller build must be produced on Windows. The script creates a local executable; **no prebuilt or signed installer is promised**. Validate the resulting EXE on its target machine.
+
+## Tests
+
+\`\`\`powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
-```
+\`\`\`
 
-No GitHub Actions workflows were added or executed.
+Offline tests cover core components including observer behavior, workflow plans and handoffs, explicit session associations and performance collection. Integration behavior depends on installed provider versions and must be tested locally.
 
-## Explicit Codex → Claude delegation tracking (local iteration)
+## Roadmap
 
-A new `monitor delegate` command can launch a **real** Claude or Codex
-subprocess for a known workflow phase and record its origin and outcome.
-The underlying schema is provider-neutral and can also support Orca.
+| Area | Status | Next steps |
+| --- | --- | --- |
+| Local core and web dashboard | **Implemented, iterating** | Hardening and UX improvements |
+| Claude Code Mod | **Experimental implementation** | Native event compatibility, better workflow integration |
+| Codex workflow/delegation | **Partially implemented** | Automatic app-server/SDK event integration |
+| Agent/session correlation | **In progress** | Verified automatic Codex → Claude → session identities |
+| Token and cost attribution | **Partial** | Per-agent and per-phase evidence-backed accounting |
+| Orca side panel | **Planned** | Embedded frontend using shared API |
+| Performance and packaging | **Implemented in part** | Benchmarking, regressions, installer and releases |
+| Reliability | **Ongoing** | Full integration tests and version compatibility |
 
-For example, on Windows (after importing the example workflow):
+### Known limitations
 
-```powershell
-$python = "C:\git\agent-workflow-monitor\.venv\Scripts\python.exe"
-$entry = "C:\git\agent-workflow-monitor\entry.py"
-& $python $entry delegate `
-  --plan pops-customer-api --phase qa `
-  --provider claude --agent qa-reviewer `
-  --orchestrator-provider codex `
-  -- claude -p "Review the implementation and report findings"
-```
+- A single working Codex may be represented by several live OS processes; selecting the primary process can require user confirmation.
+- Claude CLI processes can own multiple conversations, and reliable automatic agent/session association is not always available.
+- OS ancestry and matching task titles do not prove orchestration.
+- Provider-specific JSONL and Mod APIs may change.
+- Some token totals and dollar costs are unavailable; **no cost should be invented**.
+- This is a **local single-user developer tool**, not a hardened multi-tenant monitoring service.
 
-If you know the actual Codex orchestrator session ID, pass
-`--orchestrator-session ID`. If the child session ID is known, pass
-`--session ID`. Neither is guessed or taken from a similar timestamp.
+## Contributing
 
-- `POST /api/workflows/{plan_id}/phases/{phase_id}/executions` records
-  an explicit launch with provider, agent, optional session, orchestrator
-  and PID.
-- `POST /api/workflows/executions/{execution_id}/finish` records an exit
-  code and guards against overwriting a phase that has since been handed
-  to a different agent.
-- `GET /api/workflows/{plan_id}/executions` returns execution history.
+Suggestions, bug reports and pull requests are welcome where repository permissions allow. Include OS, Python and CLI versions and sanitized diagnostics. **Never post API keys, private prompts, transcript contents or sensitive paths.**
 
-A Claude Mod `/workflow` panel can display the executor, orchestrator,
-timestamps and exit status beneath an expanded phase. This data is
-separate from token-based cost accounting. A successful subprocess exit
-finishes its **execution record**, but the phase stays in **waiting** until
-an explicit acceptance event marks it completed; a nonzero exit marks
-an unchanged phase failed.
+## License
 
-Install the optional Codex skill from
-`integrations/codex/skills/agent-workflow-delegate/SKILL.md` using
-`integrations/codex/README.md` for Windows instructions.
+Distributed under the [MIT License](LICENSE).
 
-**Current scope:** this tracks **only processes explicitly launched with
-the wrapper**. It is not a universal passive listener for arbitrary Codex
-orchestration, and it does not intercept an already-running Codex session.
-The Codex app-server and SDK have richer event streams for a future
-fully automatic agent-orchestration adapter. No commands, prompts or
-agent outputs are persisted by the wrapper. No GitHub Actions.
+---
 
-## Performance profile and diagnostics
-
-The monitor now provides bounded in-memory diagnostics at
-`GET http://127.0.0.1:8765/api/performance`:
-
-- Current Python process RSS, user/system CPU time, thread count
-- Rolling p50/p95/max for JSONL scans, SQLite event writes, API work,
-  and Claude Mod-reported hook overhead
-- Counters for scanned transcript files, Mod events and API timeouts
-- Effective JSONL polling interval and last scan duration
-
-Performance samples are kept in a ring buffer in memory (default 300
-samples per measurement), and **are not stored** in SQLite.
-
-### Configurable Windows settings
-
-Run in PowerShell before starting the Python monitor:
-
-```powershell
-$env:AGENT_MONITOR_POLL_SECONDS = "5"
-$env:AGENT_MONITOR_DASHBOARD_SECONDS = "10"
-$env:AGENT_MONITOR_METRIC_SAMPLES = "300"
-.\.venv\Scripts\python.exe -m monitor serve
-```
-
-JSONL tailing now defaults to **5 seconds**, while the more expensive
-historical reconciliation runs at most once per minute. The browser
-pauses dashboard polling while hidden, with only one polling request in
-flight at a time, and reads the refresh interval from the backend.
-
-The Claude Mod queues up to **100** event snapshots, flushes up to **40**
-at a time after **500 milliseconds**, and retries failed sends after
-**5 seconds**. It uses the supported `$.clock.after` API, not global
-`setTimeout` (which is unavailable in Claude Mods). The panel reports
-queued, sent and dropped event counts. If the backend stays unavailable,
-old buffered events are discarded rather than allowing unlimited
-memory usage. The Mod sends only metadata, not prompts or tool bodies.
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8765/api/performance |
-    ConvertTo-Json -Depth 10
-```
-
-For a local benchmark, take baseline measurements with the monitor
-idle, then run a real Codex/Claude workflow with several agents and
-compare RSS, CPU-time deltas, p95 latencies, event throughput and
-dropped events. Neither the p95 target (under 10ms for synchronous
-hook overhead) nor low idle CPU usage is verified yet.
-
-Tests (local, no GitHub Actions):
-
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-```
-
-Performance telemetry is process-local, does not use a cloud provider,
-and is reset on each restart.
-
-## Performance dashboard — historical charts
-
-The web UI now includes a **Performance** tab next to **Ejecuciones**.
-It shows CPU utilization of the Python backend (percentage of one logical
-CPU), resident RAM, rolling p95 latencies for JSONL scanning, SQLite
-event writes, dashboard requests and Claude hooks, and per-interval
-telemetry counts (received, processed, dropped as reported by the Mod,
-and API timeouts).
-
-Data comes from a separate local SQLite database:
-`~/.agent-monitor/performance.db`. This database contains **only
-infrastructure metrics**, not prompts, tool arguments or transcript data.
-The background sampler does not read process command lines or enumerate
-the entire system.
-
-- Default sample interval: **15 seconds**
-- Default history retention: **48 hours** (max configurable 168 hours)
-- Selected ranges: **1 / 6 / 24 / 48 hours**
-- History endpoint: `GET /api/performance/history?hours=6&limit=400`
-- Current diagnostic endpoint: `GET /api/performance`
-- Maximum returned points: **500**, subsampled in SQLite when necessary
-- The Performance view refreshes every 15 seconds only while visible.
-- Browser polling is paused when the page is hidden.
-
-Optional PowerShell settings before starting the server:
-
-```powershell
-$env:AGENT_MONITOR_PERF_INTERVAL_SECONDS="15"
-$env:AGENT_MONITOR_PERF_RETENTION_HOURS="48"
-$env:AGENT_MONITOR_POLL_SECONDS="5"
-$env:AGENT_MONITOR_DASHBOARD_SECONDS="10"
-.\.venv\Scripts\python.exe -m monitor serve
-```
-
-With the server running open `http://127.0.0.1:8765` and click
-**Performance**. Allow at least two sample intervals before expecting a
-meaningful CPU delta; a new installation has no historical samples until
-the collector runs. The history database survives server restarts, while
-the rolling in-memory p95 histograms reset on restart.
-
-**Interpretation:** CPU % is the backend process's usage relative to one
-logical CPU, not percent of the entire machine. The event chart shows
-changes between consecutive stored cumulative counters. Mod drops are
-only countable once a Claude Mod successfully reports its cumulative
-discarded-event total, so they may not include events lost while the
-Mod remained permanently disconnected. Neither average RAM nor CPU
-alone proves the absence of latency in Claude's hooks.
-
-Local tests (no cloud or GitHub Actions):
-
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-```
-
-## Focused orchestrator view (November 2026)
-
-The **Ejecuciones** sidebar no longer lists every local Codex process as a
-separate work session. Instead:
-
-1. Choose your **active Codex** from the **ORQUESTADOR DE TRABAJO** dropdown.
-2. The sidebar shows **only that Codex** and its related Claude processes.
-   Other Codex processes are accessible through the dropdown, not displayed as
-   independent session cards.
-3. Expand **ASOCIAR CLAUDE** to select the Claude processes working on that
-   orchestration, and choose **Asociar seleccionados**. Multiple Claudes can
-   be linked in one request. Related Claude processes remain clickable, and
-   their associated agent cards are shown in the orchestrator's right pane.
-4. Existing user-confirmed associations are reused while the exact processes
-   remain alive. You can **Desasociar** a Claude when needed.
-
-The chosen Codex is saved in local SQLite in `monitor_focus`. Bulk Claude
-relationships are stored in `process_links`. Both identities include the
-**process creation timestamp** to prevent accidentally reusing a relationship
-when Windows recycles a PID. The selected Codex and its confirmed links are
-returned by `GET /api/dashboard` as `focus` and `manual_links`.
-
-- `POST /api/topology/focus` (body `{"pid": 1234}`) selects the active Codex.
-- `DELETE /api/topology/focus` clears the selection.
-- `POST /api/topology/links/batch` (body
-  `{"parent_pid":1234,"child_pids":[5678,9012]}`) associates chosen Claudes.
-
-All mutations require `X-Monitor-Key`. The backend validates *all* selected
-PIDs before creating links. We do not guess cross-provider orchestration from
-similar task titles, dates or process counts. OS parentage may be shown as
-**observed ancestry**, not proof of intentional delegation. For future truly
-automatic grouping, Codex and Claude adapters must publish verified
-orchestrator/executor identities. Restarting a CLI process may therefore
-require selecting and confirming links again.
-
-No GitHub Actions were added or executed.
-
-## Multiple Claude sessions per associated agent (November 2026)
-
-A Claude CLI process and a Claude **conversation/session** are different
-entities. Previously the UI showed session titles in global history and
-could display an agent with zero metrics even when its JSONL conversations
-had usage data. Now:
-
-1. Select your main Codex and associate its Claude processes as before.
-2. Under each **Claude · PID** node, expand the list of correlated sessions.
-   Sessions with a verified CLI session ID appear automatically.
-3. For an active Claude with uncorrelated transcript records, select
-   **Vincular sesión** and explicitly choose the matching Claude
-   conversation; multiple conversations can belong to the same live PID.
-4. Click a session to open its full **Agent Execution** workflow. A
-   confirmed manual association can be undone using **Desvincular sesión**.
-5. Sessions that are attached to agents no longer appear redundantly in
-   the collapsed historical list. Unlinked conversations stay there until
-   they are identified.
-
-The right-hand Claude card now aggregates input/output tokens, known
-reported/estimated USD costs and completed/total recorded steps **only
-from sessions actually attached to that Claude**. The Codex orquestrator
-card can also summarize those attached Claude sessions without counting
-duplicate session IDs; it does **not** claim those totals are Codex's own
-usage. Unknown and estimated costs are labeled, never fabricated.
-
-Backend changes:
-- `agent_session_links` stores confirmed Claude PID/session relations,
-  including the Windows process creation time to prevent PID reuse.
-- `GET /api/dashboard` includes `agent_sessions`, `session_metrics`
-  and nested `topology.roots[].children[].sessions`.
-- `POST /api/topology/agent-sessions` associates a verified Claude run
-  with an active Claude PID (authenticated).
-- `DELETE /api/topology/agent-sessions/{run_id}` removes a manually
-  confirmed link (authenticated).
-- If an explicit CLI resume identifier verifies a session under another
-  process, that verified mapping takes precedence over a previous manual
-  association.
-
-This design does **not** guess which Claude agent owns a conversation by
-matching project folder, timestamps or natural-language task titles.
-Provider integrations will eventually supply signed/verified correlation
-metadata so manual linking is no longer necessary.
-
-Update with `git pull`, restart Python, and press `Ctrl+F5`.
-No GitHub Actions were configured or executed.
+<sub>Made with ❤️ by <a href="https://joaquinsosa.es">joaquinsosa.es</a>.</sub>
