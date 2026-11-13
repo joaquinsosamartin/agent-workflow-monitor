@@ -100,3 +100,24 @@ authenticated events from an agent integration; parsing arbitrary tool
 operations is not a reliable way to determine a phase's completion.
 The terminal Mod cannot use HTML/CSS from the web dashboard, so its stepper
 is rendered using native terminal components. No GitHub Actions.
+
+## Shared Codex subagent view
+
+The native Claude Code Mod now has a **CODEX · ORQUESTACIÓN COMPARTIDA**
+section in addition to its Claude-only subagent list. This section reads
+the selected Codex orchestrator and thread-based subagent hierarchy from
+the shared FastAPI dashboard. It is entirely **read-only**: it does not
+invoke Codex, manage Codex processes or infer that Codex subagents are
+Claude agents.
+
+Select the principal **Codex PID** and its **root Codex session** in the
+web dashboard first. Then, when the Claude Mod is open, press
+**Actualizar**. The Mod displays nested Codex threads with expandable
+children, observed lifecycle and verified token/cost totals when the
+corresponding JSONL exists. Missing sessions and unavailable cost data
+are marked as such.
+
+**This does not require Claude Code to be running for Codex monitoring**:
+the normal web dashboard is the Codex view, and the Claude Mod is only a
+secondary shared view if you happen to use Claude Code. A standalone
+native Codex panel/extension remains planned rather than implemented.
