@@ -532,6 +532,9 @@ class SessionObserver:
                 call=payload.get("call_id")
                 if call:
                     name=payload.get("name") or kind
+                    if name=="spawn_agent":
+                        from .codex_agents import record_spawn_call
+                        record_spawn_call(self.store,rid,call)
                     with self.store.lock:
                         count=self.store.conn.execute("SELECT COUNT(*) FROM nodes WHERE run_id=? AND parent_id=?",
                                                       (rid,root)).fetchone()[0]
@@ -544,6 +547,8 @@ class SessionObserver:
             elif kind in ("function_call_output","custom_tool_call_output"):
                 call=payload.get("call_id")
                 if call:
+                    from .codex_agents import record_spawn_response
+                    record_spawn_response(self.store,rid,call,payload.get("output"))
                     nid=stable("node",rid,f"tool:{call}")
                     with self.store.lock:
                         found=self.store.conn.execute("SELECT 1 FROM nodes WHERE id=?",(nid,)).fetchone()
