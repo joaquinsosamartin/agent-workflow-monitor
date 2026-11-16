@@ -272,7 +272,7 @@ Copy-Item .\integrations\codex\skills\agent-workflow-delegate\SKILL.md $target -
 Restart Codex. After creating a workflow plan with the desired phase IDs (see [sample plan](examples/multi-agent-workflow.json)), track a delegated Claude execution using:
 
 ```powershell
-.\.venv\Scripts\python.exe -m monitor delegate --plan pops-customer-api --phase qa --provider claude --agent qa-reviewer --orchestrator-provider codex -- claude -p "Review the implementation and report findings"
+.\.venv\Scripts\python.exe -m monitor delegate --plan sample-customer-api --phase qa --provider claude --agent qa-reviewer --orchestrator-provider codex -- claude -p "Review the implementation and report findings"
 ```
 
 The wrapper records execution identity, PID, start/end time and exit status — **not the prompt or tool output**. A successful process exit leaves the phase **waiting for explicit acceptance**, rather than automatically declaring the work complete.
