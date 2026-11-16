@@ -20,17 +20,17 @@ class WorkflowPlanTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_codex_to_claude_handoff_preserves_phase(self):
-        data=PlanInput(id="pops-plan",title="Customer API",project="POPS",phases=[
+        data=PlanInput(id="sample-plan",title="Customer API",project="sample",phases=[
             {"id":"implementation","title":"Implement backend","provider":"codex","agent_id":"backend","order":0},
             {"id":"review","parent_id":"implementation","title":"Review","provider":"claude",
              "agent_id":"reviewer","order":1}
         ])
         upsert_plan(self.store,data)
-        update_phase(self.store,"pops-plan","implementation",PhaseUpdate(
+        update_phase(self.store,"sample-plan","implementation",PhaseUpdate(
             status="running",provider="codex",agent_id="backend",session_id="codex-1",event_id="ev1"))
-        update_phase(self.store,"pops-plan","implementation",PhaseUpdate(
+        update_phase(self.store,"sample-plan","implementation",PhaseUpdate(
             status="running",provider="claude",agent_id="reviewer",session_id="claude-1",event_id="ev2"))
-        result=snapshot(self.store,"pops-plan")
+        result=snapshot(self.store,"sample-plan")
         main=next(p for p in result["phases"] if p["id"]=="implementation")
         self.assertEqual(main["provider"],"claude")
         self.assertEqual(main["agent_id"],"reviewer")
