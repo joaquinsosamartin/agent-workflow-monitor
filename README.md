@@ -12,14 +12,26 @@ Track Claude Code and OpenAI Codex from one dashboard: identify live agents, org
 
 ## Screenshots
 
-Real captures from development builds of the application and the Claude Code Mod. The UI evolves frequently, so labels and layout may differ slightly from the latest version.
+These are **real, unaltered-in-content screenshots supplied during development**. They are not AI-generated mockups, recreated interfaces or sample designs. The screenshots are stored at their original pixel dimensions; WebP is used only for loss-efficient image compression.
 
-| Agent Workflow Monitor · Codex orchestration | Claude Code Mod · Native panel |
-| --- | --- |
-| [![Agent Workflow Monitor dashboard showing Codex session and subagents](docs/screenshots/dashboard.jpg)](docs/screenshots/dashboard.jpg) | [![Claude Code Mod showing session context, recent actions and status](docs/screenshots/claude-mod.jpg)](docs/screenshots/claude-mod.jpg) |
-| Codex workflow, linked subagents and execution activity. | Local Claude Code status, context window and observed tool activity. |
+### Web dashboard — Codex orchestration
 
-The dashboard's main **Workflow** section now groups tool calls behind an explicit *Show tools* control. The separate **Technical event audit** is collapsed by default, with filters for state transitions, usage and logs. Earlier screenshots may show the previous ungrouped timeline.
+![Real Agent Workflow Monitor dashboard — Codex orchestrator, JSONL session, Jason and Sartre subagents, token totals and execution timeline](docs/screenshots/dashboard-real.webp)
+
+[Open full-resolution screenshot](docs/screenshots/dashboard-real.webp) · **1800 × 1043 px** · Captured **13 November 2026**
+
+This screenshot shows the real `security-newpops-ai-fleet` execution, a selected Codex orchestrator, detected subagents **Jason** and **Sartre**, recorded token usage, and its execution timeline. It is a genuine development capture, **not a representation of the latest UI**. Subsequent updates regrouped tools inside their steps and moved raw events into a separate technical audit section.
+
+### Claude Code Mod — native terminal pane
+
+![Real Claude Code Mod screenshot showing Agent Workflow Monitor title, context usage, observed tools and local controls](docs/screenshots/claude-mod-real.webp)
+
+[Open full-resolution screenshot](docs/screenshots/claude-mod-real.webp) · **871 × 432 px** · Captured **11 November 2026**
+
+This shows the actual native Claude Code Mod displaying its session state, context window, detected tools and panel controls. The image predates later shared workflow and Codex thread views; those features are not depicted here.
+
+**Screenshot policy:** documentation screenshots must come from real application runs. Do not use generated UI illustrations as product screenshots, and describe any differences between captured builds and the current implementation.
+
 
 > **Early-stage software.** The web dashboard, local observers, Claude Code Mod, shared workflow API and explicit delegation tools are implemented at varying levels of maturity. Automatic correlation across all Codex and Claude processes, sessions and agents remains incomplete. Some integrations depend on evolving provider APIs.
 
