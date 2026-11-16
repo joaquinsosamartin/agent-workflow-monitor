@@ -28,11 +28,14 @@ class TimelineUiTests(unittest.TestCase):
         root=Path(__file__).resolve().parents[1]
         readme=(root/"README.md").read_text(encoding="utf-8")
         for name in ("dashboard","claude-mod"):
-            image=root/"docs"/"screenshots"/(name+".jpg")
+            filename=name+"-real.webp"
+            image=root/"docs"/"screenshots"/filename
             self.assertTrue(image.is_file(),image)
-            self.assertIn("docs/screenshots/"+name+".jpg",readme)
+            self.assertIn("docs/screenshots/"+filename,readme)
             with image.open("rb") as f:
-                self.assertEqual(f.read(3),bytes.fromhex("ffd8ff"))
+                self.assertEqual(f.read(4),b"RIFF")
+                f.seek(8)
+                self.assertEqual(f.read(4),b"WEBP")
 
 
 if __name__=="__main__":
