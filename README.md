@@ -10,6 +10,17 @@ Track Claude Code and OpenAI Codex from one dashboard: identify live agents, org
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 ![Status](https://img.shields.io/badge/Status-active%20development-orange)
 
+## Screenshots
+
+Real captures from development builds of the application and the Claude Code Mod. The UI evolves frequently, so labels and layout may differ slightly from the latest version.
+
+| Agent Workflow Monitor · Codex orchestration | Claude Code Mod · Native panel |
+| --- | --- |
+| [![Agent Workflow Monitor dashboard showing Codex session and subagents](docs/screenshots/dashboard.svg)](docs/screenshots/dashboard.svg) | [![Claude Code Mod showing session context, recent actions and status](docs/screenshots/claude-mod.svg)](docs/screenshots/claude-mod.svg) |
+| Codex workflow, linked subagents and execution activity. | Local Claude Code status, context window and observed tool activity. |
+
+The dashboard's main **Workflow** section now groups tool calls behind an explicit *Show tools* control. The separate **Technical event audit** is collapsed by default, with filters for state transitions, usage and logs. Earlier screenshots may show the previous ungrouped timeline.
+
 > **Early-stage software.** The web dashboard, local observers, Claude Code Mod, shared workflow API and explicit delegation tools are implemented at varying levels of maturity. Automatic correlation across all Codex and Claude processes, sessions and agents remains incomplete. Some integrations depend on evolving provider APIs.
 
 ## Why this project?
