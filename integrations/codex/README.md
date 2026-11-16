@@ -29,7 +29,7 @@ $python = "C:\git\agent-workflow-monitor\.venv\Scripts\python.exe"
 $monitor = "C:\git\agent-workflow-monitor\entry.py"
 
 & $python $monitor delegate `
-  --plan pops-customer-api `
+  --plan sample-customer-api `
   --phase qa `
   --provider claude `
   --agent qa-reviewer `
@@ -52,8 +52,8 @@ It does **not** store:
 
 ## Inspect results
 
-- `GET /api/workflows/pops-customer-api` — plan and ownership history
-- `GET /api/workflows/pops-customer-api/executions` — delegated runs
+- `GET /api/workflows/sample-customer-api` — plan and ownership history
+- `GET /api/workflows/sample-customer-api/executions` — delegated runs
 - Claude Code Mod `/workflow` — the same plan, including delegation
   history under its expanded phase
 
