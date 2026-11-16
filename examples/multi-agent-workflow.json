@@ -1,7 +1,7 @@
 {
-  "id": "pops-customer-api",
-  "title": "POPS — Customer API",
-  "project": "security-newpops",
+  "id": "sample-customer-api",
+  "title": "Sample — Customer API",
+  "project": "sample-project",
   "phases": [
     {
       "id": "analysis",
