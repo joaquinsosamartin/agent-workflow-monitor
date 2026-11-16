@@ -16,7 +16,7 @@ Real captures from development builds of the application and the Claude Code Mod
 
 | Agent Workflow Monitor · Codex orchestration | Claude Code Mod · Native panel |
 | --- | --- |
-| [![Agent Workflow Monitor dashboard showing Codex session and subagents](docs/screenshots/dashboard.svg)](docs/screenshots/dashboard.svg) | [![Claude Code Mod showing session context, recent actions and status](docs/screenshots/claude-mod.svg)](docs/screenshots/claude-mod.svg) |
+| [![Agent Workflow Monitor dashboard showing Codex session and subagents](docs/screenshots/dashboard.jpg)](docs/screenshots/dashboard.jpg) | [![Claude Code Mod showing session context, recent actions and status](docs/screenshots/claude-mod.jpg)](docs/screenshots/claude-mod.jpg) |
 | Codex workflow, linked subagents and execution activity. | Local Claude Code status, context window and observed tool activity. |
 
 The dashboard's main **Workflow** section now groups tool calls behind an explicit *Show tools* control. The separate **Technical event audit** is collapsed by default, with filters for state transitions, usage and logs. Earlier screenshots may show the previous ungrouped timeline.
