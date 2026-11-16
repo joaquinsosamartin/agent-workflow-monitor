@@ -108,6 +108,15 @@ h1{font-size:27px;letter-spacing:-.7px;margin:15px 0 5px}.header{display:flex;al
 .codex-subagent{border-left:2px solid #668dbb;margin-top:8px;padding:8px;background:#142941;border-radius:7px}
 .codex-subagent .tree-name{font-size:12px}
 .codex-subagent .tree-hint{overflow-wrap:anywhere}
+
+.tools-section{margin-top:15px;border-left:2px solid #3d607f;padding:9px 12px;background:#142238;border-radius:8px}
+.tools-summary{font-size:12px;color:#a9c3e0;margin:0 0 8px}
+.action-list{max-height:480px;overflow:auto;margin-top:12px}
+.action-node{border-bottom:1px solid #2b4058;padding:2px 0}
+.audit-details{margin-top:28px;border-top:1px solid #344960;padding-top:15px}
+.audit-summary{color:#a8bad3;font-size:12px;cursor:pointer;font-weight:600;letter-spacing:.3px}
+.audit-controls{max-width:280px;margin:12px 0}
+.audit-container{max-height:540px;overflow:auto}
 </style></head>
 <body><div class="layout"><aside><div class="brand">◇ Agent Workflow <span>Monitor</span>
 <div class="brand-byline">made with <span class="heart" aria-label="love">❤️</span> by <a href="https://joaquinsosa.es" target="_blank" rel="noopener noreferrer">joaquinsosa.es</a></div></div>
@@ -149,7 +158,7 @@ async function getDashboard(force=false){
  return dashboardRequest;
 }
 
-const opened=new Set(),closed=new Set();
+const opened=new Set(),closed=new Set(),actionOpened=new Set();
 const el=(tag,cls,text)=>{const x=document.createElement(tag);if(cls)x.className=cls;if(text!==undefined)x.textContent=text;return x};
 const money=x=>x==null?"—":"$"+Number(x).toFixed(Number(x)<1?4:2);
 const dateTime=value=>{
@@ -179,37 +188,87 @@ const get=async(path)=>{
 const usageSum=(rows)=>{let t=0,c=0,unknown=false;for(const u of rows){t+=u.input_tokens+u.output_tokens;if(u.cost_usd!=null)c+=Number(u.cost_usd);else unknown=true}return {tokens:t,cost:rows.every(u=>u.cost_usd==null)?null:c,unknown}};
 function cumulative(node,nodes,usage){const ids=[node.id];for(let i=0;i<ids.length;i++)ids.push(...nodes.filter(n=>n.parent_id===ids[i]).map(n=>n.id));return usageSum(usage.filter(u=>ids.includes(u.node_id)))}
 function txt(parent,tag,cls,value){const x=el(tag,cls,value);parent.append(x);return x}
+function isToolStep(node){
+ return /^(Tool|Herramienta)\s*[·:]/i.test(node.title||"");
+}
 function childRow(node,nodes,usage,depth=0){
- const u=cumulative(node,nodes,usage),row=el("div","child"),left=el("div"),status=node.status;
+ const u=cumulative(node,nodes,usage);
+ const holder=el("div","action-node");
+ const row=el("div","child");
+ const left=el("div");
  left.style.paddingLeft=(Math.min(depth,3)*12)+"px";
- txt(left,"span",status==="completed"?"good":status==="running"?"active":"muted",
-     (status==="completed"?"✓ ":status==="running"?"◌ ":status==="failed"?"! ":"○ ")+node.title);
- if(node.agent)txt(left,"div","muted",node.agent+" · "+label(status));
+ txt(left,"div",node.status==="completed"?"good":node.status==="running"?"active":"muted",
+    (node.status==="completed"?"✓ ":node.status==="running"?"◌ ":node.status==="failed"?"! ":"○ ")+node.title);
+ if(node.agent)txt(left,"div","muted",node.agent+" · "+label(node.status));
  txt(left,"div","timestamp step-time",dateTime(node.updated_at));
- row.append(left,el("span","",compact(u.tokens)+" · "+money(u.cost)));
- const holder=el("div");holder.append(row);
+ row.append(left,el("span","",u.tokens?compact(u.tokens)+" tokens":"—"));
+ holder.append(row);
  const children=nodes.filter(n=>n.parent_id===node.id);
  if(children.length){
-  const toggle=el("button","muted",opened.has(node.id)?"Ocultar "+children.length+" subpasos":"Ver "+children.length+" subpasos");
-  toggle.style.cssText="background:transparent;border:0;font-size:11px;padding:4px 0 7px 14px";
-  toggle.onclick=()=>{if(opened.has(node.id))opened.delete(node.id);else opened.add(node.id);render(snapshot)};
-  holder.append(toggle);
-  if(opened.has(node.id))children.slice(0,100).forEach(c=>holder.append(childRow(c,nodes,usage,depth+1)));
+   const toggle=el("button","tree-action",opened.has(node.id)?"Ocultar subpasos":"Ver "+children.length+" subpasos");
+   toggle.onclick=()=>{if(opened.has(node.id))opened.delete(node.id);else opened.add(node.id);render(snapshot)};
+   holder.append(toggle);
+   if(opened.has(node.id))children.slice(0,100).forEach(c=>holder.append(childRow(c,nodes,usage,depth+1)));
  }
  return holder;
 }
 function stepView(node,index,nodes,usage){
- const wrap=el("section","step "+node.status),circle=el("div","circle",node.status==="completed"?"✓":node.status==="running"?"◌":String(index+1));wrap.append(circle);
- const content=el("div"),heading=el("button","heading"),headingName=el("span","",String(index+1)+". "+node.title),chevron=el("span","muted");
+ const wrap=el("section","step "+node.status);
+ const completed=node.status==="completed";
+ const circle=el("div","circle",completed?"✓":node.status==="running"?"◌":String(index+1));
+ wrap.append(circle);
+ const content=el("div");
+ const heading=el("button","heading");
+ const headingName=el("span","",String(index+1)+". "+node.title);
+ const chevron=el("span","muted");
  heading.append(headingName,chevron);content.append(heading);
- const children=nodes.filter(n=>n.parent_id===node.id),open=opened.has(node.id);chevron.textContent=open?"⌃":"⌄";
+ const children=nodes.filter(n=>n.parent_id===node.id);
+ const phaseChildren=children.filter(n=>!isToolStep(n));
+ const tools=children.filter(isToolStep);
+ const open=opened.has(node.id);
+ chevron.textContent=open?"⌃":"⌄";
  const meta=el("div","meta"),tot=cumulative(node,nodes,usage);
- txt(meta,"span",node.provider==="claude"?"active":"good",(node.provider==="claude"?"✧ ":"⌘ ")+(node.agent||"Sin asignar"));
- txt(meta,"span","",label(node.status));txt(meta,"span","",compact(tot.tokens)+" tokens · "+money(tot.cost)+(tot.unknown?"*":""));content.append(meta);
+ txt(meta,"span",node.provider==="claude"?"active":"good",
+     (node.provider==="claude"?"✧ ":"⌘ ")+(node.agent||"Sin asignar"));
+ const stateLabel=node.provider==="codex"&&node.parent_id==null&&completed
+    ?"Turno finalizado · sesión abierta":label(node.status);
+ txt(meta,"span","",stateLabel);
+ txt(meta,"span","",compact(tot.tokens)+" tokens · "+money(tot.cost)+(tot.unknown?"*":""));
+ content.append(meta);
  txt(content,"div","timestamp step-time","Última acción · "+dateTime(node.updated_at));
- if(open&&children.length){const sub=el("div","children");children.slice(0,100).forEach(child=>sub.append(childRow(child,nodes,usage)));content.append(sub)}
- heading.onclick=()=>{if(open){opened.delete(node.id)}else{opened.add(node.id)}render(snapshot)};
- wrap.append(content);return wrap
+ if(open){
+   if(phaseChildren.length){
+     const sub=el("div","children");
+     phaseChildren.slice(0,100).forEach(child=>sub.append(childRow(child,nodes,usage)));
+     content.append(sub);
+   }
+   if(tools.length){
+     const toolsSection=el("section","tools-section");
+     const completedCount=tools.filter(x=>x.status==="completed").length;
+     txt(toolsSection,"p","tools-summary",
+        tools.length+" herramientas registradas · "+completedCount+" finalizadas");
+     const toggle=el("button","tree-action",
+       actionOpened.has(node.id)?"Ocultar herramientas":"Mostrar herramientas ("+tools.length+")");
+     toggle.setAttribute("aria-expanded",String(actionOpened.has(node.id)));
+     toggle.onclick=()=>{
+       if(actionOpened.has(node.id))actionOpened.delete(node.id);
+       else actionOpened.add(node.id);
+       render(snapshot);
+     };
+     toolsSection.append(toggle);
+     if(actionOpened.has(node.id)){
+       const sub=el("div","children action-list");
+       tools.slice(-100).forEach(item=>sub.append(childRow(item,nodes,usage)));
+       toolsSection.append(sub);
+     }
+     content.append(toolsSection);
+   }
+   if(!phaseChildren.length&&!tools.length)
+     txt(content,"p","tree-hint","Este paso no tiene subpasos registrados.");
+ }
+ heading.setAttribute("aria-expanded",String(open));
+ heading.onclick=()=>{if(open)opened.delete(node.id);else opened.add(node.id);render(snapshot)};
+ wrap.append(content);return wrap;
 }
 function render(data){if(detailSelection.type!=="session"||detailSelection.id!==data.run.id)return;
  snapshot=data;const view=document.querySelector("#view");view.replaceChildren();const run=data.run,roots=data.nodes.filter(n=>!n.parent_id),tot=usageSum(data.usage);
@@ -217,12 +276,34 @@ function render(data){if(detailSelection.type!=="session"||detailSelection.id!==
  txt(view,"h1","",run.title);txt(view,"p","muted",(run.project||"Local")+" · Workflow de agentes");
  txt(view,"div","timestamp","Actualizado · "+dateTime(run.updated_at));
  const cards=el("div","cards");for(const item of [[money(tot.cost),"Coste USD"+(tot.unknown?" · parcial":"")],[compact(tot.tokens),"Tokens entrada + salida"],[roots.filter(n=>n.status==="completed").length+"/"+roots.length,"Fases completadas"]]){const c=el("div","card");txt(c,"b","",item[0]);txt(c,"small","",item[1]);cards.append(c)}view.append(cards);
- txt(view,"div","eyebrow","EXECUTION TIMELINE");const timeline=el("div","timeline");roots.forEach((n,i)=>timeline.append(stepView(n,i,data.nodes,data.usage)));view.append(timeline);
- const historyBtn=el("button","btn",historyExpanded?"Ocultar historial de acciones":"Ver historial de acciones");
- historyBtn.setAttribute("aria-expanded",String(historyExpanded));
- historyBtn.onclick=async()=>{historyExpanded=!historyExpanded;render(snapshot);if(historyExpanded)await showHistory(selected)};
- view.append(historyBtn);
+ txt(view,"div","eyebrow","WORKFLOW · FASES Y AGENTES");const timeline=el("div","timeline");roots.forEach((n,i)=>timeline.append(stepView(n,i,data.nodes,data.usage)));view.append(timeline);
+ const audit=el("details","audit-details");
+ audit.open=historyExpanded;
+ const summary=el("summary","audit-summary","Registro técnico · auditoría de eventos");
+ audit.append(summary);
+ txt(audit,"p","tree-hint","Eventos cronológicos de diagnóstico; las herramientas y fases se consultan arriba. Incluye identificadores y transiciones internas.");
+ const controls=el("div","audit-controls");
+ const filter=el("select","tree-selector");
+ filter.setAttribute("aria-label","Filtrar eventos de auditoría");
+ for(const [value,title] of [["all","Todos los eventos"],["node.status","Cambios de pasos"],["run.status","Estado de sesión"],["usage","Consumo de tokens"],["log","Registros"]]){
+   const option=el("option","",title);option.value=value;filter.append(option);
+ }
+ controls.append(filter);audit.append(controls);
+ const auditContainer=el("div","audit-container");
+ audit.append(auditContainer);
+ const loadAudit=async()=>{
+   if(!audit.open||detailSelection.type!=="session"||selected!==run.id)return;
+   auditContainer.replaceChildren();
+   await showHistory(run.id,auditContainer,filter.value);
+ };
+ filter.onchange=()=>{void loadAudit()};
+ audit.addEventListener("toggle",()=>{
+   historyExpanded=audit.open;
+   if(audit.open)void loadAudit();
+ });
+ view.append(audit);
  txt(view,"div","footer","◉ SQLite local · Actualización SSE · Costes reportados/estimados según proveedor");
+ if(historyExpanded)void loadAudit();
 }
 function sessionButton(r){
  const active=r.presence==="active",waiting=r.presence==="waiting",recent=r.presence==="recent_unverified";
@@ -448,7 +529,7 @@ function showProcessDetails(p,refreshTree=true){
  snapshot=null;
  if(stream){stream.close();stream=null}
  if(refreshTimer){clearTimeout(refreshTimer);refreshTimer=null}
- opened.clear();closed.clear();historyExpanded=false;
+ opened.clear();closed.clear();actionOpened.clear();historyExpanded=false;
  lastRunSignature="";lastSnapshotSignature="";treeSignature="";
  const view=document.querySelector("#view");
  view.replaceChildren();
@@ -810,24 +891,24 @@ function eventName(item){
  if(item.kind==="log")return name+" · Evento";
  return name+" · "+item.kind;
 }
-async function showHistory(id){
- const records=await get("/api/runs/"+encodeURIComponent(id)+"/history?limit=40");
- if(id!==selected||detailSelection.type!=="session")return;
- const view=document.querySelector("#view");
- const area=el("section","activity");
- txt(area,"div","eyebrow","HISTORIAL DE ACCIONES");
+async function showHistory(id,target,kind="all"){
+ const records=await get("/api/runs/"+encodeURIComponent(id)+"/history?limit=100");
+ if(id!==selected||detailSelection.type!=="session"||!target?.isConnected)return;
+ target.replaceChildren();
+ const filtered=kind==="all"?records:records.filter(r=>r.kind===kind);
  const panel=el("div","activity-list");
- const latest=records;
- if(!latest.length)txt(panel,"div","muted","Todavía no hay eventos registrados");
- latest.forEach(record=>{
-  const item=el("div","activity-item"),main=el("div");
-  txt(main,"div","name",eventName(record));
-  txt(main,"div","timestamp",dateTime(record.created_at));
-  item.append(main);
-  txt(item,"span","muted","#"+record.seq);
-  panel.append(item);
+ if(!filtered.length)txt(panel,"div","muted","No hay eventos para este filtro.");
+ filtered.forEach(record=>{
+   const item=el("div","activity-item"),main=el("div");
+   const name=record.kind==="node.status"&&record.payload?.includes('"status":"completed"')
+      ?"Paso finalizado":eventName(record);
+   txt(main,"div","name",name);
+   txt(main,"div","timestamp",dateTime(record.created_at));
+   item.append(main);
+   txt(item,"span","muted","#"+record.seq);
+   panel.append(item);
  });
- area.append(panel);view.append(area);
+ target.append(panel);
 }
 async function refresh(force=false){
  if(!selected||detailSelection.type!=="session")return;
@@ -841,7 +922,7 @@ async function refresh(force=false){
    lastSnapshotSignature=sig;
    const scroll=window.scrollY;
    render(data);
-   if(historyExpanded&&detailSelection.type==="session")await showHistory(id);
+   // Audit section independently reloads when its details are opened.
    window.scrollTo({top:scroll,behavior:"instant"});
   }
  }catch(e){console.error(e)}
