@@ -858,7 +858,7 @@ def history(run_id:str,after:int=0,limit:int=40):
 
 @app.post('/api/demo',dependencies=[Depends(authorize)])
 def demo():
-    rid=store.add_run('Customer API · Authentication & Authorization','POPS / Demo')
+    rid=store.add_run('Customer API · Authentication & Authorization','Sample / Demo')
     steps=[('Análisis y arquitectura','Claude · Architect','claude',['Revisar requisitos','Definir contratos','Plan de implementación']),('Implementación backend','Codex · Developer','codex',['Entidades y DTOs','Endpoints y handlers','Persistencia']),('Pruebas y validaciones','Codex · QA','codex',['Compilación','Tests unitarios','Calidad']),('Revisión y entrega','Claude · Reviewer','claude',['Revisión de arquitectura','Seguridad','Pull Request'])]
     result=[]
     for i,(title,agent,provider,children) in enumerate(steps):
