@@ -219,7 +219,8 @@ function stepView(node,index,nodes,usage){
  wrap.append(circle);
  const content=el("div");
  const heading=el("button","heading");
- const headingName=el("span","",String(index+1)+". "+node.title);
+ const visualTitle=node.provider==="codex"&&node.title==="Codex CLI session"?"Sesión Codex · actividad del turno":node.title;
+ const headingName=el("span","",String(index+1)+". "+visualTitle);
  const chevron=el("span","muted");
  heading.append(headingName,chevron);content.append(heading);
  const children=nodes.filter(n=>n.parent_id===node.id);
@@ -275,7 +276,9 @@ function render(data){if(detailSelection.type!=="session"||detailSelection.id!==
  const header=el("div","header");txt(header,"span","eyebrow","AGENT EXECUTION · "+run.id.substring(0,12));txt(header,"span","badge",label(run.status));view.append(header);
  txt(view,"h1","",run.title);txt(view,"p","muted",(run.project||"Local")+" · Workflow de agentes");
  txt(view,"div","timestamp","Actualizado · "+dateTime(run.updated_at));
- const cards=el("div","cards");for(const item of [[money(tot.cost),"Coste USD"+(tot.unknown?" · parcial":"")],[compact(tot.tokens),"Tokens entrada + salida"],[roots.filter(n=>n.status==="completed").length+"/"+roots.length,"Fases completadas"]]){const c=el("div","card");txt(c,"b","",item[0]);txt(c,"small","",item[1]);cards.append(c)}view.append(cards);
+ const phases=roots.filter(n=>!["Codex CLI session","Claude Code session"].includes(n.title));
+ const phaseDisplay=phases.length?phases.filter(n=>n.status==="completed").length+"/"+phases.length:"—";
+ const cards=el("div","cards");for(const item of [[money(tot.cost),"Coste USD"+(tot.unknown?" · parcial":"")],[compact(tot.tokens),"Tokens entrada + salida"],[phaseDisplay,"Fases funcionales registradas"]]){const c=el("div","card");txt(c,"b","",item[0]);txt(c,"small","",item[1]);cards.append(c)}view.append(cards);
  txt(view,"div","eyebrow","WORKFLOW · FASES Y AGENTES");const timeline=el("div","timeline");roots.forEach((n,i)=>timeline.append(stepView(n,i,data.nodes,data.usage)));view.append(timeline);
  const audit=el("details","audit-details");
  audit.open=historyExpanded;
