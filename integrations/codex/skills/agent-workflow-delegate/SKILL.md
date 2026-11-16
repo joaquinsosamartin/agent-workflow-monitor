@@ -40,7 +40,7 @@ Example syntax (substitute the real IDs and actual command):
 
 ```powershell
 .\.venv\Scripts\python.exe -m monitor delegate `
-  --plan pops-customer-api --phase qa `
+  --plan sample-customer-api --phase qa `
   --provider claude --agent qa-reviewer `
   --orchestrator-provider codex `
   --orchestrator-session YOUR_KNOWN_CODEX_SESSION_ID `
@@ -55,10 +55,10 @@ The wrapper waits for the child and records its exit code. The selected phase be
 
 ## Inspect the result
 
-`GET http://127.0.0.1:8765/api/workflows/pops-customer-api` returns
+`GET http://127.0.0.1:8765/api/workflows/sample-customer-api` returns
 the phase status and audit events.
 
-`GET http://127.0.0.1:8765/api/workflows/pops-customer-api/executions`
+`GET http://127.0.0.1:8765/api/workflows/sample-customer-api/executions`
 returns the delegated execution timeline.
 
 Only use a verified workflow ID and agent session. The Claude Mod can
