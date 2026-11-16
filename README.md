@@ -12,15 +12,15 @@ Track Claude Code and OpenAI Codex from one dashboard: identify live agents, org
 
 ## Screenshots
 
-These are **real, unaltered-in-content screenshots supplied during development**. They are not AI-generated mockups, recreated interfaces or sample designs. The screenshots are stored at their original pixel dimensions; WebP is used only for loss-efficient image compression.
+These images show the actual application during development. The dashboard screenshot is **privacy-edited**: only text containing the project identifier `ai-fleet` has been blurred. All other UI content remains visible. The Claude Code Mod screenshot has not been changed.
 
 ### Web dashboard — Codex orchestration
 
-![Real Agent Workflow Monitor dashboard — Codex orchestrator, JSONL session, Jason and Sartre subagents, token totals and execution timeline](docs/screenshots/dashboard-real.webp)
+![Agent Workflow Monitor dashboard with Codex orchestrator, Jason and Sartre subagents, token usage, and project-name text blurred for privacy](docs/screenshots/dashboard.jpg)
 
-[Open full-resolution screenshot](docs/screenshots/dashboard-real.webp) · **1800 × 1043 px** · Captured **13 November 2026**
+[Open dashboard screenshot](docs/screenshots/dashboard.jpg) · **1672 × 941 px** · Captured **13 November 2026** · Privacy-edited
 
-This screenshot shows the real `security-newpops-ai-fleet` execution, a selected Codex orchestrator, detected subagents **Jason** and **Sartre**, recorded token usage, and its execution timeline. It is a genuine development capture, **not a representation of the latest UI**. Subsequent updates regrouped tools inside their steps and moved raw events into a separate technical audit section.
+The image shows a real Codex execution with the selected orchestrator, detected subagents **Jason** and **Sartre**, recorded token usage and the execution timeline. Project-identifying text has been blurred for confidentiality; other labels and metrics remain visible. The capture predates subsequent timeline and audit-log UI refinements.
 
 ### Claude Code Mod — native terminal pane
 
@@ -30,7 +30,7 @@ This screenshot shows the real `security-newpops-ai-fleet` execution, a selected
 
 This shows the actual native Claude Code Mod displaying its session state, context window, detected tools and panel controls. The image predates later shared workflow and Codex thread views; those features are not depicted here.
 
-**Screenshot policy:** documentation screenshots must come from real application runs. Do not use generated UI illustrations as product screenshots, and describe any differences between captured builds and the current implementation.
+**Screenshot policy:** documentation images must be grounded in real application captures. If a screenshot has been privacy-edited, disclose that editing and preserve the original interface content wherever practical. Do not present illustrative mockups as live product captures.
 
 
 > **Early-stage software.** The web dashboard, local observers, Claude Code Mod, shared workflow API and explicit delegation tools are implemented at varying levels of maturity. Automatic correlation across all Codex and Claude processes, sessions and agents remains incomplete. Some integrations depend on evolving provider APIs.
